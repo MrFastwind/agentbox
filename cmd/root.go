@@ -170,7 +170,7 @@ func runRoot(inv cli.Invocation) int {
 		PrintArgv: *printArgv,
 	}
 
-	code, err := opts.Boot(def, req)
+	code, err := runSession(opts, def, req)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "agentbox: %v\n", err)
 		if code == 0 {

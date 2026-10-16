@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"strings"
 
 	"agentbox/internal/agent"
@@ -80,7 +79,7 @@ func runDoctor(args []string) int {
 }
 
 func podmanLine(args ...string) string {
-	out, err := exec.Command("podman", args...).Output()
+	out, err := execCommand("podman", args...).Output()
 	if err != nil {
 		return "unavailable (" + err.Error() + ")"
 	}

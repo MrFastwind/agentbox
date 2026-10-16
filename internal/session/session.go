@@ -37,6 +37,11 @@ type Options struct {
 	PrintArgv bool
 }
 
+// runPodman is podman.Run, indirected so the boot path can be tested end to end
+// without a container runtime: a test substitutes a function that captures the
+// resolved spec and rendered argv.
+var runPodman = podman.Run
+
 // Boot resolves the request and runs the sandbox, returning the inner exit code.
 func (o Options) Boot(def agent.Definition, req policy.Request) (int, error) {
 	spec, err := o.Resolver.Resolve(def, req)
@@ -120,7 +125,7 @@ func (o Options) Boot(def agent.Definition, req policy.Request) (int, error) {
 		return 0, nil
 	}
 
-	return podman.Run(spec, args, o.Stdin, o.Stdout, o.Stderr)
+	return runPodman(spec, args, o.Stdin, o.Stdout, o.Stderr)
 }
 
 // prepareStateDirs creates the writable state directories on the host side of

@@ -23,7 +23,7 @@ func runExec(args []string) int {
 	}
 
 	argv := append([]string{"exec", "-i", "-t", name}, rest...)
-	cmd := exec.Command("podman", argv...)
+	cmd := execCommand("podman", argv...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
