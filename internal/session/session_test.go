@@ -87,6 +87,15 @@ func contains(args []string, want string) bool {
 	return false
 }
 
+func hasSeccompArg(args []string) bool {
+	for _, a := range args {
+		if strings.HasPrefix(a, "seccomp=") && len(a) > len("seccomp=") {
+			return true
+		}
+	}
+	return false
+}
+
 func TestBootPrintArgvStagesAndDoesNotRun(t *testing.T) {
 	withRun(t, func(*policy.ResolvedSpec, []string, *os.File, *os.File, *os.File) (int, error) {
 		t.Fatal("PrintArgv must not invoke podman")
@@ -162,6 +171,9 @@ func TestBootStagesStateAndSeedsAndRuns(t *testing.T) {
 	}
 	if !contains(gotArgs, "--read-only") {
 		t.Fatalf("rendered argv lost hardening: %v", gotArgs)
+	}
+	if !hasSeccompArg(gotArgs) {
+		t.Fatalf("rendered argv does not install a seccomp profile: %v", gotArgs)
 	}
 
 	// The ephemeral HOME is removed when Boot returns.

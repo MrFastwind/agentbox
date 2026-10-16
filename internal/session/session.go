@@ -105,10 +105,24 @@ func (o Options) Boot(def agent.Definition, req policy.Request) (int, error) {
 		name = "agentbox-" + shortID()
 	}
 
+	// The seccomp profile podman installs, denying the syscalls that create
+	// nested user namespaces. It is written to its own 0700 directory and read
+	// from there; it is never mounted into the container.
+	seccompDir, err := ephemeralDir("agentbox-seccomp-")
+	if err != nil {
+		return 1, fmt.Errorf("creating seccomp staging directory: %w", err)
+	}
+	cleanups = append(cleanups, func() { os.RemoveAll(seccompDir) })
+	seccompPath := filepath.Join(seccompDir, podman.SeccompProfileName)
+	if err := os.WriteFile(seccompPath, podman.SeccompProfile(), 0o600); err != nil {
+		return 1, fmt.Errorf("staging seccomp profile: %w", err)
+	}
+
 	args := podman.Argv(spec, podman.Options{
-		Name:        name,
-		Interactive: true,
-		TTY:         o.TTY,
+		Name:           name,
+		Interactive:    true,
+		TTY:            o.TTY,
+		SeccompProfile: seccompPath,
 	})
 	if err := podman.Assert(spec, args); err != nil {
 		return 1, err

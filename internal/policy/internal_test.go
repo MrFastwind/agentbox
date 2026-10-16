@@ -59,17 +59,17 @@ func TestResolveLimits(t *testing.T) {
 		wantWarnSub []string
 	}{
 		{
-			name: "empty keeps defaults",
+			name:    "empty keeps defaults",
 			wantMem: defaultMemory, wantCPUs: defaultCPUs, wantPids: defaultPids,
 		},
 		{
 			name: "valid values",
-			mem: "8g", cpus: "1.5", pids: 4096,
+			mem:  "8g", cpus: "1.5", pids: 4096,
 			wantMem: "8g", wantCPUs: "1.5", wantPids: 4096,
 		},
 		{
 			name: "bad memory falls back and warns",
-			mem: "lots", wantMem: defaultMemory, wantCPUs: defaultCPUs, wantPids: defaultPids,
+			mem:  "lots", wantMem: defaultMemory, wantCPUs: defaultCPUs, wantPids: defaultPids,
 			wantWarnSub: []string{"memory"},
 		},
 		{

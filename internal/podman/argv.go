@@ -42,9 +42,17 @@ func Argv(spec *policy.ResolvedSpec, opts Options) []string {
 	if spec.NoNewPrivileges {
 		args = append(args, "--security-opt", "no-new-privileges")
 	}
+	if opts.SeccompProfile != "" {
+		args = append(args, "--security-opt", "seccomp="+opts.SeccompProfile)
+	}
 	if spec.ReadOnly {
 		args = append(args, "--read-only")
 	}
+
+	// Disable core dumps. A crashing agent must not drop a core file — which can
+	// contain process memory, including credentials read from a seeded config —
+	// into the workspace it is running in.
+	args = append(args, "--ulimit", "core=0")
 
 	// --http-proxy defaults to true, which injects the host's proxy variables —
 	// frequently credentialed — into every container. It must be disabled
@@ -102,4 +110,8 @@ type Options struct {
 	Name        string
 	Interactive bool
 	TTY         bool
+
+	// SeccompProfile is the host path to the seccomp profile podman installs.
+	// Empty means no explicit profile, which Assert refuses.
+	SeccompProfile string
 }

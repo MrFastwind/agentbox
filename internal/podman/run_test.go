@@ -29,7 +29,8 @@ func validArgs() []string {
 	return []string{
 		"run", "--rm",
 		"--http-proxy=false", "--unsetenv-all",
-		"--cap-drop", "ALL", "--read-only",
+		"--cap-drop", "ALL", "--read-only", "--ulimit", "core=0",
+		"--security-opt", "seccomp=/run/agentbox/seccomp.json",
 		"--volume", "/home/u/project:/workspace:rw",
 		"localhost/agentbox/opencode:latest",
 	}

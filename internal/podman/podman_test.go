@@ -33,7 +33,7 @@ func baseSpec() *policy.ResolvedSpec {
 
 func TestArgvSatisfiesInvariants(t *testing.T) {
 	spec := baseSpec()
-	args := podman.Argv(spec, podman.Options{Name: "agentbox-test", Interactive: true, TTY: true})
+	args := podman.Argv(spec, podman.Options{Name: "agentbox-test", Interactive: true, TTY: true, SeccompProfile: testSeccomp})
 	if err := podman.Assert(spec, args); err != nil {
 		t.Fatalf("rendered argv violates invariants: %v\nargv: %v", err, args)
 	}
@@ -41,7 +41,7 @@ func TestArgvSatisfiesInvariants(t *testing.T) {
 
 func TestArgvDisablesProxyInjection(t *testing.T) {
 	spec := baseSpec()
-	args := podman.Argv(spec, podman.Options{Interactive: true})
+	args := podman.Argv(spec, podman.Options{Interactive: true, SeccompProfile: testSeccomp})
 	if !contains(args, "--http-proxy=false") {
 		t.Fatalf("expected --http-proxy=false, got %v", args)
 	}
@@ -49,7 +49,7 @@ func TestArgvDisablesProxyInjection(t *testing.T) {
 
 func TestArgvDropsAmbientEnvironment(t *testing.T) {
 	spec := baseSpec()
-	args := podman.Argv(spec, podman.Options{Interactive: true})
+	args := podman.Argv(spec, podman.Options{Interactive: true, SeccompProfile: testSeccomp})
 	if !contains(args, "--unsetenv-all") {
 		t.Fatalf("expected --unsetenv-all, got %v", args)
 	}
@@ -57,7 +57,7 @@ func TestArgvDropsAmbientEnvironment(t *testing.T) {
 
 func TestArgvEmitsHardening(t *testing.T) {
 	spec := baseSpec()
-	args := podman.Argv(spec, podman.Options{Interactive: true})
+	args := podman.Argv(spec, podman.Options{Interactive: true, SeccompProfile: testSeccomp})
 	for _, want := range []string{"--userns", "--cap-drop", "--security-opt", "--read-only"} {
 		if !contains(args, want) {
 			t.Errorf("expected %s in argv: %v", want, args)
@@ -66,7 +66,7 @@ func TestArgvEmitsHardening(t *testing.T) {
 }
 
 func TestArgvNeverEnablesHostNetworkingByItself(t *testing.T) {
-	args := podman.Argv(baseSpec(), podman.Options{Interactive: true})
+	args := podman.Argv(baseSpec(), podman.Options{Interactive: true, SeccompProfile: testSeccomp})
 	for i, a := range args {
 		if a == "--network" && i+1 < len(args) && args[i+1] == "host" {
 			t.Fatal("argv requested host networking from a spec that asked for slirp4netns")
@@ -130,7 +130,7 @@ func TestAssertRejectsSecondUserWritableMount(t *testing.T) {
 	spec.Mounts = append(spec.Mounts, policy.ResolvedMount{
 		Host: "/home/u/extra", Dest: "/extra", Access: policy.RW, Origin: "extra",
 	})
-	args := podman.Argv(spec, podman.Options{Interactive: true})
+	args := podman.Argv(spec, podman.Options{Interactive: true, SeccompProfile: testSeccomp})
 	if err := podman.Assert(spec, args); err == nil {
 		t.Fatal("Assert must reject a second user-influenced writable mount")
 	}
@@ -143,7 +143,7 @@ func TestAssertRejectsUnknownWritableOrigin(t *testing.T) {
 	spec.Mounts = append(spec.Mounts, policy.ResolvedMount{
 		Host: "/tmp/xyz", Dest: "/mystery", Access: policy.RW, Origin: "surprise",
 	})
-	args := podman.Argv(spec, podman.Options{Interactive: true})
+	args := podman.Argv(spec, podman.Options{Interactive: true, SeccompProfile: testSeccomp})
 	if err := podman.Assert(spec, args); err == nil {
 		t.Fatal("Assert must reject a writable mount with an unrecognised origin")
 	}
