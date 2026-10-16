@@ -1,0 +1,34 @@
+# pi sandbox: base + Node + the pi coding agent.
+#
+# pi is an npm package (engines.node >= 22.19.0), not a static binary, so this
+# image carries a Node runtime. It is a separate image from opencode's precisely
+# so that Node is not paid for twice.
+ARG BASE=localhost/container-agent/base:latest
+FROM ${BASE}
+
+# Pinned. The image's Node must satisfy the pinned pi version's engines field;
+# drifting either one independently is a real failure mode.
+ARG NODE_VERSION=22.20.0
+ARG PI_VERSION=0.87.1
+
+RUN ARCH="$(dpkg --print-architecture)" \
+ && case "$ARCH" in \
+      amd64) NODE_ARCH=x64 ;; \
+      arm64) NODE_ARCH=arm64 ;; \
+      *) echo "unsupported architecture: $ARCH" >&2; exit 1 ;; \
+    esac \
+ && curl -fsSLO "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.xz" \
+ && tar -xJf "node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.xz" \
+      -C /usr/local --strip-components=1 --no-same-owner \
+ && rm "node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.xz" \
+ && node --version \
+ && npm --version
+
+RUN npm install --global --omit=dev "@earendil-works/pi-coding-agent@${PI_VERSION}" \
+ && npm cache clean --force
+
+# Fail the build rather than shipping an agent that cannot resolve its runtime.
+RUN pi --version
+
+ENTRYPOINT ["/usr/local/bin/container-agent-entrypoint"]
+CMD ["pi"]

@@ -1,0 +1,10 @@
+# Compiled binaries
+/container-agent
+/agentbox
+
+# Test coverage artifacts
+/coverage.out
+/coverall.out
+
+# Agent working notes
+.opencode/

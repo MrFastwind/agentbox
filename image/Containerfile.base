@@ -1,0 +1,43 @@
+# Shared base for every container-agent sandbox.
+#
+# Debian, not Alpine: the agents are glibc-linked, and a musl image will not run
+# them. The toolchain layer is shared so that the per-agent images differ only in
+# what the agent itself needs.
+FROM docker.io/library/debian:stable-slim
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV LANG=C.UTF-8
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      bash \
+      ca-certificates \
+      curl \
+      git \
+      jq \
+      less \
+      ripgrep \
+      fd-find \
+      build-essential \
+      pkg-config \
+      python3 \
+      openssh-client \
+      procps \
+  && rm -rf /var/lib/apt/lists/*
+
+# Debian ships fd as fdfind; agents expect "fd".
+RUN ln -sf /usr/bin/fdfind /usr/local/bin/fd
+
+# A passwd entry for the mapped user. Under --userns=keep-id the host uid is
+# preserved, so this is only so that tools have a name to resolve; it grants
+# nothing.
+RUN groupadd -g 1000 agent \
+ && useradd -u 1000 -g 1000 -m -s /bin/bash agent
+
+COPY entrypoint.sh /usr/local/bin/container-agent-entrypoint
+RUN chmod 0755 /usr/local/bin/container-agent-entrypoint
+
+# /workspace is where the launch directory is mounted.
+WORKDIR /workspace
+
+ENTRYPOINT ["/usr/local/bin/container-agent-entrypoint"]
+CMD ["/bin/bash", "-l"]

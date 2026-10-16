@@ -1,0 +1,218 @@
+package cmd
+
+import (
+	"flag"
+	"fmt"
+	"os"
+	"sort"
+
+	"container-agent/internal/agent"
+	"container-agent/internal/audit"
+	"container-agent/internal/cli"
+	"container-agent/internal/config"
+	"container-agent/internal/fsx"
+	"container-agent/internal/policy"
+	"container-agent/internal/session"
+)
+
+func runRoot(inv cli.Invocation) int {
+	fs := flag.NewFlagSet("container-agent", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	fs.Usage = func() { usage(fs) }
+
+	var (
+		agentName    = fs.String("agent", "", "agent to launch (opencode, pi, shell)")
+		workdir      = fs.String("workdir", "", "override the launch directory")
+		image        = fs.String("image", "", "override the sandbox image (fully-qualified name required)")
+		noUserConfig = fs.Bool("no-user-config", false, "read, mount and seed no host agent configuration")
+		network      = fs.String("network", "", "network mode: pasta (default), none, private, host")
+		memory       = fs.String("memory", "", "memory limit (default 4g)")
+		cpus         = fs.String("cpus", "", "CPU limit (default 2)")
+		pidsLimit    = fs.Int("pids-limit", 0, "process count limit (default 2048)")
+		configPath   = fs.String("config", "", "project configuration file (never auto-discovered)")
+		printArgv    = fs.Bool("print-argv", false, "print the podman argv and exit")
+		auditLog     = fs.String("audit-log", "", "append a JSON decision record to this file")
+		forceShell   = fs.Bool("shell", false, "run a shell in the agent's image instead of the agent")
+		strictConfig = fs.Bool("strict-config", false, "refuse host configuration that carries credential-shaped keys instead of mounting it read-only")
+	)
+
+	var envs, mounts stringSlice
+	fs.Var(&envs, "env", "pass one host environment variable (repeatable; allow-listed per agent)")
+	fs.Var(&mounts, "mount", "extra mount SRC:DST[:ro|rw] (repeatable; deny-list validated)")
+
+	var command []string
+	if inv.Explicit {
+		// "--" was used: every argument is a command to run in the container.
+		command = inv.Args
+	} else {
+		if err := fs.Parse(inv.Args); err != nil {
+			return 2
+		}
+		command = fs.Args()
+	}
+
+	set := map[string]bool{}
+	fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
+
+	var cfg *config.File
+	if *configPath != "" {
+		var err error
+		cfg, err = config.Load(*configPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "container-agent: %v\n", err)
+			return 2
+		}
+	}
+
+	// Precedence: explicit flag, then project configuration, then default.
+	pick := func(flagSet bool, flagVal, cfgVal, def string) string {
+		switch {
+		case flagSet && flagVal != "":
+			return flagVal
+		case cfgVal != "":
+			return cfgVal
+		default:
+			return def
+		}
+	}
+
+	cfgStr := func(get func(*config.File) string) string {
+		if cfg == nil {
+			return ""
+		}
+		return get(cfg)
+	}
+
+	selected := pick(set["agent"], *agentName, cfgStr(func(c *config.File) string { return c.Agent }), "shell")
+	selectedImage := pick(set["image"], *image, cfgStr(func(c *config.File) string { return c.Image }), "")
+	selectedWorkdir := pick(set["workdir"], *workdir, cfgStr(func(c *config.File) string { return c.Workdir }), "")
+	selectedNetwork := pick(set["network"], *network, cfgStr(func(c *config.File) string { return c.Network }), "")
+	selectedMemory := pick(set["memory"], *memory, cfgStr(func(c *config.File) string { return c.Memory }), "")
+	selectedCPUs := pick(set["cpus"], *cpus, cfgStr(func(c *config.File) string { return c.CPUs }), "")
+
+	selectedPids := *pidsLimit
+	if selectedPids == 0 && cfg != nil {
+		selectedPids = cfg.PidsLimit
+	}
+
+	noConfig := *noUserConfig
+	if !set["no-user-config"] && cfg != nil && cfg.UserConfig != nil && !*cfg.UserConfig {
+		noConfig = true
+	}
+
+	if len(command) == 0 && cfg != nil {
+		command = cfg.Command
+	}
+	envNames := append([]string{}, envs...)
+	extraMounts := append([]string{}, mounts...)
+	if cfg != nil {
+		envNames = append(envNames, cfg.Env...)
+		extraMounts = append(extraMounts, cfg.Mounts...)
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "container-agent: locating home directory: %v\n", err)
+		return 1
+	}
+	reg := agent.New(home)
+
+	def, err := reg.Get(selected)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "container-agent: %v\n", err)
+		return 2
+	}
+	if noConfig {
+		if def, err = reg.WithoutUserConfig(selected); err != nil {
+			fmt.Fprintf(os.Stderr, "container-agent: %v\n", err)
+			return 2
+		}
+	}
+	if *forceShell {
+		def.Command = []string{"/bin/bash", "-l"}
+	}
+
+	req := policy.Request{
+		AgentName:       selected,
+		NoUserConfig:    noConfig,
+		WorkdirOverride: selectedWorkdir,
+		ExtraMounts:     extraMounts,
+		EnvNames:        envNames,
+		NetworkMode:     selectedNetwork,
+		Memory:          selectedMemory,
+		CPUs:            selectedCPUs,
+		PidsLimit:       selectedPids,
+		Command:         command,
+		Image:           selectedImage,
+	}
+
+	resolver := policy.NewResolver(fsx.Real{}, os.LookupEnv)
+	resolver.Strict = *strictConfig
+
+	var logger *audit.Logger
+	if *auditLog != "" {
+		f, err := os.OpenFile(*auditLog, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "container-agent: opening audit log: %v\n", err)
+			return 1
+		}
+		defer f.Close()
+		logger = audit.New(f)
+	}
+
+	opts := session.Options{
+		Resolver:  resolver,
+		Audit:     logger,
+		Stdin:     os.Stdin,
+		Stdout:    os.Stdout,
+		Stderr:    os.Stderr,
+		TTY:       isTerminal(os.Stdin) && isTerminal(os.Stdout),
+		PrintArgv: *printArgv,
+	}
+
+	code, err := opts.Boot(def, req)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "container-agent: %v\n", err)
+		if code == 0 {
+			code = 1
+		}
+	}
+	return code
+}
+
+func isTerminal(f *os.File) bool {
+	fi, err := f.Stat()
+	if err != nil {
+		return false
+	}
+	return fi.Mode()&os.ModeCharDevice != 0
+}
+
+func usage(fs *flag.FlagSet) {
+	fmt.Fprintf(fs.Output(), `container-agent — run a coding agent inside a contained sandbox
+
+Usage:
+  container-agent [flags] [--] [command...]
+  container-agent exec <name> -- <command...>
+  container-agent images build [agent...]
+  container-agent doctor
+  container-agent version
+
+The default invocation is the command: trailing arguments run inside the
+container. Reserved words (exec, images, doctor, version) are recognized only in
+first position; use "--" to run one of them as a program instead.
+
+Flags:
+`)
+	fs.PrintDefaults()
+}
+
+// sortedMountSummary is used by tests and diagnostics.
+func sortedMountSummary(ms []policy.ResolvedMount) []string {
+	out := make([]string, 0, len(ms))
+	for _, m := range ms {
+		out = append(out, m.Host+":"+m.Dest+":"+m.Access.String())
+	}
+	sort.Strings(out)
+	return out
+}

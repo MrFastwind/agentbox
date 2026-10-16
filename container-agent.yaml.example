@@ -1,0 +1,52 @@
+# Example container-agent project configuration.
+#
+# Pass it explicitly:  container-agent --config container-agent.yaml
+#
+# There is deliberately NO auto-discovery. A configuration file that is picked up
+# from the working directory is not configuration, it is remote policy: a cloned
+# repository could otherwise choose the agent, the network mode, the mounts and
+# the credentials for a run the user believes they are controlling.
+#
+# Every value here is an input to the policy engine, not a decision. Listing
+# "network: host" asks for host networking; the policy engine still applies and
+# the choice is recorded in the audit log.
+
+# Agent to launch: opencode, pi, or shell.
+agent: opencode
+
+# Override the sandbox image. Must be fully qualified (name the registry):
+# podman resolves an unqualified name against the host's registry search list,
+# which is not configured here, so a short name means a different image on a
+# different machine.
+# image: localhost/container-agent/opencode:latest
+
+# Launch directory. Defaults to the current directory.
+# workdir: .
+
+# Network mode. Defaults to pasta (outbound only: no LAN, no tailnet, no
+# host loopback). "none" is stricter and prevents the agent reaching its model
+# provider at all. "host" is discouraged.
+# network: pasta
+
+# Resource caps. Clamped to sane bounds.
+memory: 4g
+cpus: "2"
+pids_limit: 2048
+
+# Environment names to pass through. Each must be on the agent's allowlist;
+# anything else is refused rather than silently ignored. Absent entries here, no
+# credential crosses and the agent is expected to fail to authenticate.
+env: []
+# env:
+#   - OPENCODE_API_KEY
+
+# Extra mounts, deny-list validated, read-only unless ":rw" is given.
+mounts: []
+# mounts:
+#   - /srv/data:/data:ro
+
+# Run this instead of the agent's default command.
+# command: ["/bin/bash", "-l"]
+
+# Set to false to read, mount and seed no host agent configuration.
+user_config: true
