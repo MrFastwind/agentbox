@@ -3,7 +3,8 @@
 **Status:** Implemented (v0.1.0). This document is the working design before
 build; drift discovered during implementation is recorded in [§0 — Implemented drift](#0-implemented-drift)
 so the plan does not silently describe something the code no longer does.
-**Source:** `READAME.md` (note: filename typo in repo; left as-is)
+**Source:** the original project README (was committed under the misspelled
+name `READAME.md`; renamed to `README.md`).
 
 ---
 
