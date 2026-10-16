@@ -12,7 +12,7 @@ import (
 	"sort"
 	"strings"
 
-	"container-agent/internal/policy"
+	"agentbox/internal/policy"
 )
 
 // Record is one run's decisions.

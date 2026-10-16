@@ -6,7 +6,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"container-agent/internal/agent"
+	"agentbox/internal/agent"
 )
 
 // runDoctor reports the facts a run depends on, and — importantly — which mode
@@ -14,12 +14,12 @@ import (
 func runDoctor(args []string) int {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "container-agent: locating home directory: %v\n", err)
+		fmt.Fprintf(os.Stderr, "agentbox: locating home directory: %v\n", err)
 		return 1
 	}
 	reg := agent.New(home)
 
-	fmt.Println("container-agent doctor")
+	fmt.Println("agentbox doctor")
 	fmt.Println()
 
 	fmt.Println("runtime")

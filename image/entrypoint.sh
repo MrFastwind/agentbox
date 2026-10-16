@@ -1,5 +1,5 @@
 #!/bin/sh
-# container-agent entrypoint.
+# agentbox entrypoint.
 #
 # Runs inside the sandbox as the keep-id (non-root) user and does two things
 # before handing off to the command:
@@ -49,7 +49,7 @@ do
 	ensure_dir "$d"
 done
 
-SEEDS=/run/container-agent/seeds
+SEEDS=/run/agentbox/seeds
 if [ -d "$SEEDS" ] && [ -n "${PI_CODING_AGENT_DIR:-}" ]; then
 	ensure_dir "$PI_CODING_AGENT_DIR"
 	cp -a "$SEEDS"/. "$PI_CODING_AGENT_DIR"/ 2>/dev/null || true

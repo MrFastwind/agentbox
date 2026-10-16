@@ -9,7 +9,7 @@ import (
 // runExec runs a command in an already-live sandbox.
 func runExec(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: container-agent exec <name> -- <command...>")
+		fmt.Fprintln(os.Stderr, "usage: agentbox exec <name> -- <command...>")
 		return 2
 	}
 	name := args[0]
@@ -31,7 +31,7 @@ func runExec(args []string) int {
 		if ee, ok := err.(*exec.ExitError); ok {
 			return ee.ExitCode()
 		}
-		fmt.Fprintf(os.Stderr, "container-agent: exec: %v\n", err)
+		fmt.Fprintf(os.Stderr, "agentbox: exec: %v\n", err)
 		return 1
 	}
 	return 0

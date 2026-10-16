@@ -1,4 +1,4 @@
-# container-agent — Implementation Plan
+# agentbox — Implementation Plan
 
 **Status:** Implemented (v0.1.0). This document is the working design before
 build; drift discovered during implementation is recorded in [§0 — Implemented drift](#0-implemented-drift)
@@ -155,26 +155,26 @@ explicit per agent rather than to pretend it is uniform.
 The program's default invocation **is** the command. There is no required subcommand.
 
 ```bash
-container-agent                      # → container, interactive shell
-container-agent --agent opencode     # → container, opencode
-container-agent --agent pi           # → container, pi
-container-agent ls -la               # → container, runs `ls -la` and exits
-container-agent npm test             # → container, runs `npm test` and exits
-container-agent --no-user-config --agent opencode   # no host agent config at all
+agentbox                      # → container, interactive shell
+agentbox --agent opencode     # → container, opencode
+agentbox --agent pi           # → container, pi
+agentbox ls -la               # → container, runs `ls -la` and exits
+agentbox npm test             # → container, runs `npm test` and exits
+agentbox --no-user-config --agent opencode   # no host agent config at all
 ```
 
 Trailing arguments are passed **through to the agent/shell inside the container**, not
-interpreted by container-agent. With no trailing arguments, an interactive shell starts.
+interpreted by agentbox. With no trailing arguments, an interactive shell starts.
 
 ### Per-agent behaviour (user config wired in — the default)
 
 ```bash
-container-agent --agent opencode
+agentbox --agent opencode
 #   mounts ~/.config/opencode/            → $XDG_CONFIG_HOME/opencode   :ro
 #   tmpfs at $XDG_DATA_HOME               → sessions/db land here, discarded
 #   config symlinks (skills/) resolved and mounted :ro
 
-container-agent --agent pi
+agentbox --agent pi
 #   copies ~/.pi/agent/{settings,models-store,models}.json + themes/ tools/ prompts/
 #         → $PI_CODING_AGENT_DIR           (auth.json explicitly EXCLUDED)
 #   tmpfs at $PI_CODING_AGENT_SESSION_DIR → sessions discarded
@@ -201,9 +201,9 @@ is a convenience built on a file-level trust decision, and for pi in particular 
 weaker of the two boundaries (§7). So it must be possible to turn it off completely.
 
 ```bash
-container-agent --no-user-config --agent opencode
-container-agent --no-user-config --agent pi
-container-agent --no-user-config             # bare sandbox, nothing agent-specific
+agentbox --no-user-config --agent opencode
+agentbox --no-user-config --agent pi
+agentbox --no-user-config             # bare sandbox, nothing agent-specific
 ```
 
 With the flag set:
@@ -237,10 +237,10 @@ regardless of the agent's exit state, so an interrupted run never leaves a conta
 ## 5. CLI surface
 
 ```
-container-agent [flags] [--] [command...]   # the default: boot and run
-container-agent exec <name> -- <cmd>        # run in an already-live sandbox
-container-agent images build                # build/refresh the sandbox image
-container-agent doctor                      # verify podman, userns, image, agent paths
+agentbox [flags] [--] [command...]   # the default: boot and run
+agentbox exec <name> -- <cmd>        # run in an already-live sandbox
+agentbox images build                # build/refresh the sandbox image
+agentbox doctor                      # verify podman, userns, image, agent paths
 ```
 
 Supporting flags (all optional; the defaults in §4 need none of them):
@@ -254,7 +254,7 @@ Supporting flags (all optional; the defaults in §4 need none of them):
 --mount SRC:DST[:ro|rw] extra mount, deny-list validated, defaults to :ro
 --network MODE          host (default) | none | slirp4netns   [see §10]
 --memory --cpus --pids-limit
---config FILE           container-agent.yaml
+--config FILE           agentbox.yaml
 --print-argv            print the exact podman argv and exit (debugging/audit)
 ```
 
@@ -263,7 +263,7 @@ Supporting flags (all optional; the defaults in §4 need none of them):
 ## 6. Architecture
 
 ```
-container-agent/
+agentbox/
 ├── go.mod
 ├── main.go
 ├── cmd/                    # cobra: root (default), exec, images, doctor
@@ -276,12 +276,12 @@ container-agent/
 │   │   ├── seed.go         # per-file config seeding (pi path)
 │   │   └── env.go          # XDG/PI_* redirection, env allowlist
 │   ├── session/            # ephemeral container lifecycle
-│   └── config/             # container-agent.yaml loading
+│   └── config/             # agentbox.yaml loading
 ├── image/
 │   ├── Containerfile.base     # debian-slim + git, rg, fd, build tools
 │   ├── Containerfile.opencode # base + opencode binary
 │   └── Containerfile.pi       # base + node>=22.19.0 + pi-coding-agent
-├── container-agent.yaml    # example project config
+├── agentbox.yaml    # example project config
 └── PLAN.md
 ```
 
@@ -300,8 +300,8 @@ environment-dependent reference is a supply-chain ambiguity, not a convenience.
 
 | Program | Default container image (FQIN) | Built from | Upstream equivalent (FQIN) |
 |---|---|---|---|
-| `opencode` | `localhost/container-agent/opencode:latest` | `image/Containerfile.opencode` (glibc base) | `docker.io/openeuler/opencode:<pinned-tag>` |
-| `pi` | `localhost/container-agent/pi:latest` | `image/Containerfile.pi` (`FROM docker.io/library/node:22-slim`) | none |
+| `opencode` | `localhost/agentbox/opencode:latest` | `image/Containerfile.opencode` (glibc base) | `docker.io/openeuler/opencode:<pinned-tag>` |
+| `pi` | `localhost/agentbox/pi:latest` | `image/Containerfile.pi` (`FROM docker.io/library/node:22-slim`) | none |
 
 Rules:
 
@@ -321,7 +321,7 @@ The registry entry that implements this mapping:
 ```go
 type Agent struct {
     Name          string
-    Image         string          // FQIN for this program, §6a.1 (localhost/container-agent/<name>)
+    Image         string          // FQIN for this program, §6a.1 (localhost/agentbox/<name>)
     UpstreamImage string          // documented upstream equivalent, "" if none (opencode: docker.io/openeuler/opencode)
     ConfigMount   ConfigStrategy  // DirMount | FileSeed | None
     ConfigDir     string          // host dir to read config from
@@ -351,8 +351,8 @@ minimal; a shared `Containerfile.base` avoids duplicating the toolchain layer.
 Both are our own images, mapped in §6a.1. The mapping also records upstream equivalents so the
 pair is discoverable and swappable: `docker.io/openeuler/opencode` is the openEuler-built
 official image for the opencode program and may be referenced by a **user-global** config in
-place of `localhost/container-agent/opencode`; pi has no upstream image, so
-`localhost/container-agent/pi` is its only mapping. The defaults are the locally built FQINs,
+place of `localhost/agentbox/opencode`; pi has no upstream image, so
+`localhost/agentbox/pi` is its only mapping. The defaults are the locally built FQINs,
 so an unqualified name never reaches podman's runtime argv.
 
 **Design notes**
@@ -462,19 +462,19 @@ file under the launch directory, including tracked source. Two consequences foll
 ## 8. Milestones
 
 1. **Scaffold** — `go.mod`, cobra root with pass-through args, `version`, `doctor`.
-   *Exit criterion:* `container-agent doctor` reports podman version, rootless status,
+   *Exit criterion:* `agentbox doctor` reports podman version, rootless status,
    userns, image presence, and the resolved config/state paths for **both** agents,
    including which mode (`--no-user-config` or not) a given invocation would use.
 2. **Policy engine** — mount validator, deny-list, symlink resolution, unit tests.
    *Security core — implemented first, before any container is ever launched.*
 3. **Pass-through + auto-mounts (opencode)** — cwd → `/workspace:rw`,
    `~/.config/opencode/` → `:ro` with symlink targets resolved, `XDG_DATA_HOME` → tmpfs.
-   *Exit criterion:* `container-agent ls -la` works, a denied mount is rejected, and
+   *Exit criterion:* `agentbox ls -la` works, a denied mount is rejected, and
    `~/.local/share/opencode/auth.json` is provably absent inside the container.
 4. **Images** — `Containerfile.base` (glibc, git/rg/fd/build tools) plus
    `Containerfile.opencode` and `Containerfile.pi` (node ≥ 22.19.0 + pi-coding-agent);
-   `container-agent images build` with local caching. All `FROM` and runtime references are
-   FQINs (§6a.1); built images are tagged `localhost/container-agent/{opencode,pi}`.
+   `agentbox images build` with local caching. All `FROM` and runtime references are
+   FQINs (§6a.1); built images are tagged `localhost/agentbox/{opencode,pi}`.
 5. **Registry + agent runners** — the `Agent` table (§6a) with all three strategies; seed
    pi's config per file excluding `auth.json`, point `PI_CODING_AGENT_SESSION_DIR` at tmpfs.
    *Exit criterion:* both `--agent opencode` and `--agent pi` start with working config,
@@ -482,7 +482,7 @@ file under the launch directory, including tracked source. Two consequences foll
 6. **`--no-user-config`** — the `None` strategy end to end. *Exit criterion:* with the flag,
    `doctor` and `--print-argv` show no host config path at all, and a container booted this
    way cannot read any host agent config or credential file — for pi included.
-7. **Config** — `container-agent.yaml` for per-project mounts, caps, agent selection,
+7. **Config** — `agentbox.yaml` for per-project mounts, caps, agent selection,
    default agent, and whether user config is wired in.
 8. **Docs and tests** — README with the threat model, the `:rw` workspace caveat, the
    config/state split, the weaker pi boundary, and what `--no-user-config` costs;

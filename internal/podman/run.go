@@ -8,7 +8,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"container-agent/internal/policy"
+	"agentbox/internal/policy"
 )
 
 // Run executes podman with the given argv, wiring the container's stdio to ours

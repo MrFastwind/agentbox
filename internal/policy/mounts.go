@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"container-agent/internal/agent"
+	"agentbox/internal/agent"
 )
 
 // parseMount accepts SRC:DST[:ro|rw]. A colon inside a path is not supported;

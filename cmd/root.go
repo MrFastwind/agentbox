@@ -6,17 +6,17 @@ import (
 	"os"
 	"sort"
 
-	"container-agent/internal/agent"
-	"container-agent/internal/audit"
-	"container-agent/internal/cli"
-	"container-agent/internal/config"
-	"container-agent/internal/fsx"
-	"container-agent/internal/policy"
-	"container-agent/internal/session"
+	"agentbox/internal/agent"
+	"agentbox/internal/audit"
+	"agentbox/internal/cli"
+	"agentbox/internal/config"
+	"agentbox/internal/fsx"
+	"agentbox/internal/policy"
+	"agentbox/internal/session"
 )
 
 func runRoot(inv cli.Invocation) int {
-	fs := flag.NewFlagSet("container-agent", flag.ContinueOnError)
+	fs := flag.NewFlagSet("agentbox", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	fs.Usage = func() { usage(fs) }
 
@@ -59,7 +59,7 @@ func runRoot(inv cli.Invocation) int {
 		var err error
 		cfg, err = config.Load(*configPath)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "container-agent: %v\n", err)
+			fmt.Fprintf(os.Stderr, "agentbox: %v\n", err)
 			return 2
 		}
 	}
@@ -112,19 +112,19 @@ func runRoot(inv cli.Invocation) int {
 
 	home, err := os.UserHomeDir()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "container-agent: locating home directory: %v\n", err)
+		fmt.Fprintf(os.Stderr, "agentbox: locating home directory: %v\n", err)
 		return 1
 	}
 	reg := agent.New(home)
 
 	def, err := reg.Get(selected)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "container-agent: %v\n", err)
+		fmt.Fprintf(os.Stderr, "agentbox: %v\n", err)
 		return 2
 	}
 	if noConfig {
 		if def, err = reg.WithoutUserConfig(selected); err != nil {
-			fmt.Fprintf(os.Stderr, "container-agent: %v\n", err)
+			fmt.Fprintf(os.Stderr, "agentbox: %v\n", err)
 			return 2
 		}
 	}
@@ -153,7 +153,7 @@ func runRoot(inv cli.Invocation) int {
 	if *auditLog != "" {
 		f, err := os.OpenFile(*auditLog, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "container-agent: opening audit log: %v\n", err)
+			fmt.Fprintf(os.Stderr, "agentbox: opening audit log: %v\n", err)
 			return 1
 		}
 		defer f.Close()
@@ -172,7 +172,7 @@ func runRoot(inv cli.Invocation) int {
 
 	code, err := opts.Boot(def, req)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "container-agent: %v\n", err)
+		fmt.Fprintf(os.Stderr, "agentbox: %v\n", err)
 		if code == 0 {
 			code = 1
 		}
@@ -189,14 +189,14 @@ func isTerminal(f *os.File) bool {
 }
 
 func usage(fs *flag.FlagSet) {
-	fmt.Fprintf(fs.Output(), `container-agent — run a coding agent inside a contained sandbox
+	fmt.Fprintf(fs.Output(), `agentbox — run a coding agent inside a contained sandbox
 
 Usage:
-  container-agent [flags] [--] [command...]
-  container-agent exec <name> -- <command...>
-  container-agent images build [agent...]
-  container-agent doctor
-  container-agent version
+  agentbox [flags] [--] [command...]
+  agentbox exec <name> -- <command...>
+  agentbox images build [agent...]
+  agentbox doctor
+  agentbox version
 
 The default invocation is the command: trailing arguments run inside the
 container. Reserved words (exec, images, doctor, version) are recognized only in

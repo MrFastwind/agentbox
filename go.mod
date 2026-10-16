@@ -1,4 +1,4 @@
-module container-agent
+module agentbox
 
 go 1.27
 

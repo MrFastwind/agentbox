@@ -3,14 +3,14 @@ package policy_test
 import (
 	"testing"
 
-	"container-agent/internal/agent"
-	"container-agent/internal/policy"
+	"agentbox/internal/agent"
+	"agentbox/internal/policy"
 )
 
 func TestValidateImageRefAcceptsFullyQualifiedNames(t *testing.T) {
 	for _, ref := range []string{
-		"localhost/container-agent/opencode:latest",
-		"localhost/container-agent/base:latest",
+		"localhost/agentbox/opencode:latest",
+		"localhost/agentbox/base:latest",
 		"docker.io/library/debian:stable-slim",
 		"docker.io/openeuler/opencode:1.18.30-oe2403sp4",
 		"registry.example.com:5000/team/agent:v1",
@@ -29,14 +29,14 @@ func TestValidateImageRefRejectsUnqualifiedNames(t *testing.T) {
 		"",
 		"opencode",
 		"ubuntu",
-		"container-agent/opencode:latest",
-		"container-agent/base:latest",
+		"agentbox/opencode:latest",
+		"agentbox/base:latest",
 		"library/debian:stable-slim",
 		"openeuler/opencode:latest",
 		"docker.io/library/debian:stable-slim extra",
 		"https://docker.io/openeuler/opencode",
 		"localhost",
-		"/container-agent/opencode",
+		"/agentbox/opencode",
 		"docker.io/library/debian@sha512:deadbeef",
 	} {
 		if err := policy.ValidateImageRef(ref); err == nil {
@@ -62,7 +62,7 @@ func TestRegistryDefaultsAreFullyQualified(t *testing.T) {
 func TestUnqualifiedImageOverrideRefused(t *testing.T) {
 	_, err := resolve(t, opencodeHost(), "opencode", policy.Request{
 		LaunchDir: testHome + "/project",
-		Image:     "container-agent/opencode:latest",
+		Image:     "agentbox/opencode:latest",
 	}, nil)
 	rerr := wantRefusal(t, err)
 	if rerr.Refusals[0].Kind != policy.RefusalImage {

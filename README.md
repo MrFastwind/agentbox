@@ -1,4 +1,4 @@
-# container-agent
+# agentbox
 
 Run a coding agent (opencode, pi) inside a rootless-podman sandbox that is
 deliberately small, read-only, credential-tight and ephemeral.
@@ -6,11 +6,11 @@ deliberately small, read-only, credential-tight and ephemeral.
 One command gets you to a shell with the agent pre-wired:
 
 ```sh
-container-agent                          # shell in the sandbox, no agent
-container-agent --agent opencode         # the opencode agent
-container-agent --agent pi               # the pi coding agent
-container-agent npm test                 # trailing arguments run inside
-container-agent -- print-argv            # see the exact podman argv, no run
+agentbox                          # shell in the sandbox, no agent
+agentbox --agent opencode         # the opencode agent
+agentbox --agent pi               # the pi coding agent
+agentbox npm test                 # trailing arguments run inside
+agentbox -- print-argv            # see the exact podman argv, no run
 ```
 
 ## What the sandbox is
@@ -81,17 +81,17 @@ which is auditable: every seeded file's size and SHA-256 go to the audit log.
    first, so `cd ~` cannot be smuggled.
 6. **Flags before command; `--` to escape.** Reserved words (`exec`, `images`,
    `doctor`, `version`) are recognized only in first position, so
-   `container-agent exec foo` runs the `exec` subcommand and
-   `container-agent -- exec foo` runs the program `exec` inside the sandbox.
+   `agentbox exec foo` runs the `exec` subcommand and
+   `agentbox -- exec foo` runs the program `exec` inside the sandbox.
 
 ## Commands
 
 ```
-container-agent [flags] [--] [command...]   run (the default)
-container-agent exec <name> -- <command>    execute into a live sandbox
-container-agent images build [base opencode pi]
-container-agent doctor                      report what a run would use
-container-agent version
+agentbox [flags] [--] [command...]   run (the default)
+agentbox exec <name> -- <command>    execute into a live sandbox
+agentbox images build [base opencode pi]
+agentbox doctor                      report what a run would use
+agentbox version
 ```
 
 Flags: `--agent`, `--workdir`, `--image`, `--no-user-config`, `--env NAME`
@@ -109,7 +109,7 @@ believe you control. The file may *request* things; policy still decides.
 ## Building
 
 ```sh
-container-agent images build   # base, opencode, pi
+agentbox images build   # base, opencode, pi
 ```
 
 ### Image references
@@ -120,9 +120,9 @@ the host's `unqualified-search-registries` list, which is not configured here, s
 a short name selects a different image on a different machine.
 
 ```
-opencode    localhost/container-agent/opencode:latest
-pi          localhost/container-agent/pi:latest
-base/shell  localhost/container-agent/base:latest
+opencode    localhost/agentbox/opencode:latest
+pi          localhost/agentbox/pi:latest
+base/shell  localhost/agentbox/base:latest
 ```
 
 `localhost/` is the registry podman gives to locally built images. `--image` and

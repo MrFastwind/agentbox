@@ -4,14 +4,14 @@ import (
 	"strings"
 	"testing"
 
-	"container-agent/internal/podman"
-	"container-agent/internal/policy"
+	"agentbox/internal/podman"
+	"agentbox/internal/policy"
 )
 
 func baseSpec() *policy.ResolvedSpec {
 	return &policy.ResolvedSpec{
 		Agent:           "opencode",
-		Image:           "localhost/container-agent/opencode:latest",
+		Image:           "localhost/agentbox/opencode:latest",
 		Command:         []string{"opencode"},
 		Workdir:         "/workspace",
 		Userns:          "keep-id",
@@ -33,7 +33,7 @@ func baseSpec() *policy.ResolvedSpec {
 
 func TestArgvSatisfiesInvariants(t *testing.T) {
 	spec := baseSpec()
-	args := podman.Argv(spec, podman.Options{Name: "container-agent-test", Interactive: true, TTY: true})
+	args := podman.Argv(spec, podman.Options{Name: "agentbox-test", Interactive: true, TTY: true})
 	if err := podman.Assert(spec, args); err != nil {
 		t.Fatalf("rendered argv violates invariants: %v\nargv: %v", err, args)
 	}

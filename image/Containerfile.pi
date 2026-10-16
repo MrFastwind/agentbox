@@ -3,7 +3,7 @@
 # pi is an npm package (engines.node >= 22.19.0), not a static binary, so this
 # image carries a Node runtime. It is a separate image from opencode's precisely
 # so that Node is not paid for twice.
-ARG BASE=localhost/container-agent/base:latest
+ARG BASE=localhost/agentbox/base:latest
 FROM ${BASE}
 
 # Pinned. The image's Node must satisfy the pinned pi version's engines field;
@@ -30,5 +30,5 @@ RUN npm install --global --omit=dev "@earendil-works/pi-coding-agent@${PI_VERSIO
 # Fail the build rather than shipping an agent that cannot resolve its runtime.
 RUN pi --version
 
-ENTRYPOINT ["/usr/local/bin/container-agent-entrypoint"]
+ENTRYPOINT ["/usr/local/bin/agentbox-entrypoint"]
 CMD ["pi"]

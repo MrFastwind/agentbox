@@ -1,13 +1,13 @@
 // Package cli splits the command line into a reserved subcommand or a
 // pass-through invocation.
 //
-// The program's default invocation is the command: "container-agent npm test"
+// The program's default invocation is the command: "agentbox npm test"
 // runs npm test inside the sandbox. That collides with subcommands, because
-// "container-agent exec foo" is a legal way to spell both "run the exec
+// "agentbox exec foo" is a legal way to spell both "run the exec
 // subcommand" and "run the program exec inside the container".
 //
 // The rule is one sentence: reserved words are recognized only as the first
-// argument, and "--" escapes them. So "container-agent -- exec foo" always means
+// argument, and "--" escapes them. So "agentbox -- exec foo" always means
 // the program, and there is no heuristic to guess wrong.
 //
 // Flags must precede the pass-through command; anything after the first

@@ -65,7 +65,7 @@ const (
 	// LocalRegistry is the registry host podman assigns to images built locally.
 	LocalRegistry = "localhost"
 	// ImageRepository is the namespace shared by every image this tool builds.
-	ImageRepository = LocalRegistry + "/container-agent"
+	ImageRepository = LocalRegistry + "/agentbox"
 )
 
 // DefaultImage returns the fully-qualified reference of the image built for the

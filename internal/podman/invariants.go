@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"container-agent/internal/agent"
-	"container-agent/internal/policy"
+	"agentbox/internal/agent"
+	"agentbox/internal/policy"
 )
 
 // forbiddenFlags may never appear in a rendered argv. They are listed by prefix

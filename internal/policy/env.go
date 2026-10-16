@@ -4,7 +4,7 @@ import (
 	"sort"
 	"strings"
 
-	"container-agent/internal/agent"
+	"agentbox/internal/agent"
 )
 
 // resolveEnv builds the container environment.

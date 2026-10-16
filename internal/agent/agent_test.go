@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"container-agent/internal/agent"
+	"agentbox/internal/agent"
 )
 
 func TestRegistryKnowsItsAgents(t *testing.T) {

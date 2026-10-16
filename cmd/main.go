@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"container-agent/internal/cli"
+	"agentbox/internal/cli"
 )
 
 // version is the build version.

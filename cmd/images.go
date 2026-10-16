@@ -7,13 +7,13 @@ import (
 	"path/filepath"
 	"runtime"
 
-	"container-agent/internal/agent"
+	"agentbox/internal/agent"
 )
 
 // runImages builds the sandbox images from the Containerfiles in image/.
 func runImages(args []string) int {
 	if len(args) == 0 || args[0] != "build" {
-		fmt.Fprintln(os.Stderr, "usage: container-agent images build [base opencode pi shell]")
+		fmt.Fprintln(os.Stderr, "usage: agentbox images build [base opencode pi shell]")
 		return 2
 	}
 	targets := args[1:]
@@ -23,14 +23,14 @@ func runImages(args []string) int {
 
 	dir, err := imageDir()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "container-agent: %v\n", err)
+		fmt.Fprintf(os.Stderr, "agentbox: %v\n", err)
 		return 1
 	}
 
 	for _, t := range targets {
 		dockerfile := filepath.Join(dir, "Containerfile."+t)
 		if _, err := os.Stat(dockerfile); err != nil {
-			fmt.Fprintf(os.Stderr, "container-agent: no Containerfile for %q\n", t)
+			fmt.Fprintf(os.Stderr, "agentbox: no Containerfile for %q\n", t)
 			return 1
 		}
 		tag := agent.DefaultImage(t)
@@ -43,13 +43,13 @@ func runImages(args []string) int {
 		argv := append([]string{"build", "-t", tag, "-f", dockerfile}, extra...)
 		argv = append(argv, dir)
 
-		fmt.Fprintf(os.Stderr, "container-agent: building %s\n", tag)
+		fmt.Fprintf(os.Stderr, "agentbox: building %s\n", tag)
 		cmd := exec.Command("podman", argv...)
 		cmd.Stdout = os.Stderr
 		cmd.Stderr = os.Stderr
 		cmd.Stdin = os.Stdin
 		if err := cmd.Run(); err != nil {
-			fmt.Fprintf(os.Stderr, "container-agent: build failed for %s: %v\n", t, err)
+			fmt.Fprintf(os.Stderr, "agentbox: build failed for %s: %v\n", t, err)
 			return 1
 		}
 	}
@@ -59,7 +59,7 @@ func runImages(args []string) int {
 // imageDir locates the image/ directory: next to the executable, or in the
 // module root when running from a source checkout.
 func imageDir() (string, error) {
-	if override := os.Getenv("CONTAINER_AGENT_IMAGE_DIR"); override != "" {
+	if override := os.Getenv("AGENTBOX_IMAGE_DIR"); override != "" {
 		return override, nil
 	}
 	if exe, err := os.Executable(); err == nil {
@@ -76,5 +76,5 @@ func imageDir() (string, error) {
 			return cand, nil
 		}
 	}
-	return "", fmt.Errorf("cannot locate the image directory; set CONTAINER_AGENT_IMAGE_DIR")
+	return "", fmt.Errorf("cannot locate the image directory; set AGENTBOX_IMAGE_DIR")
 }

@@ -1,4 +1,4 @@
-# Shared base for every container-agent sandbox.
+# Shared base for every agentbox sandbox.
 #
 # Debian, not Alpine: the agents are glibc-linked, and a musl image will not run
 # them. The toolchain layer is shared so that the per-agent images differ only in
@@ -33,11 +33,11 @@ RUN ln -sf /usr/bin/fdfind /usr/local/bin/fd
 RUN groupadd -g 1000 agent \
  && useradd -u 1000 -g 1000 -m -s /bin/bash agent
 
-COPY entrypoint.sh /usr/local/bin/container-agent-entrypoint
-RUN chmod 0755 /usr/local/bin/container-agent-entrypoint
+COPY entrypoint.sh /usr/local/bin/agentbox-entrypoint
+RUN chmod 0755 /usr/local/bin/agentbox-entrypoint
 
 # /workspace is where the launch directory is mounted.
 WORKDIR /workspace
 
-ENTRYPOINT ["/usr/local/bin/container-agent-entrypoint"]
+ENTRYPOINT ["/usr/local/bin/agentbox-entrypoint"]
 CMD ["/bin/bash", "-l"]

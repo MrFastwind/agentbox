@@ -13,10 +13,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"container-agent/internal/agent"
-	"container-agent/internal/audit"
-	"container-agent/internal/podman"
-	"container-agent/internal/policy"
+	"agentbox/internal/agent"
+	"agentbox/internal/audit"
+	"agentbox/internal/podman"
+	"agentbox/internal/policy"
 )
 
 // Options configures a boot.
@@ -59,7 +59,7 @@ func (o Options) Boot(def agent.Definition, req policy.Request) (int, error) {
 	// this process creates 0700 and owns, on a tmpfs where one is available, and
 	// is removed on exit. The agent gets a writable HOME; nothing it writes
 	// survives, and nothing it writes is owned by anyone else.
-	stateDir, err := ephemeralDir("container-agent-state-")
+	stateDir, err := ephemeralDir("agentbox-state-")
 	if err != nil {
 		return 1, fmt.Errorf("creating ephemeral home: %w", err)
 	}
@@ -78,7 +78,7 @@ func (o Options) Boot(def agent.Definition, req policy.Request) (int, error) {
 	// Allow-listed seed files, staged read-only for the entrypoint to copy into
 	// the writable config directory.
 	if len(spec.Seed) > 0 {
-		seedDir, err := ephemeralDir("container-agent-seeds-")
+		seedDir, err := ephemeralDir("agentbox-seeds-")
 		if err != nil {
 			return 1, fmt.Errorf("creating seed staging directory: %w", err)
 		}
@@ -97,7 +97,7 @@ func (o Options) Boot(def agent.Definition, req policy.Request) (int, error) {
 
 	name := o.Name
 	if name == "" {
-		name = "container-agent-" + shortID()
+		name = "agentbox-" + shortID()
 	}
 
 	args := podman.Argv(spec, podman.Options{

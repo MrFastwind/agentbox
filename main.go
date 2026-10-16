@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"container-agent/cmd"
+	"agentbox/cmd"
 )
 
 func main() {

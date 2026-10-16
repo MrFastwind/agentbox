@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"container-agent/internal/cli"
+	"agentbox/internal/cli"
 )
 
 func TestDefaultIsPassThrough(t *testing.T) {
@@ -41,7 +41,7 @@ func TestReservedWordsAreSubcommands(t *testing.T) {
 	}
 }
 
-// "container-agent exec foo" is spelled identically whether exec is the
+// "agentbox exec foo" is spelled identically whether exec is the
 // subcommand or the program to run. "--" is the escape.
 func TestDoubleDashEscapesReservedWord(t *testing.T) {
 	inv := cli.Split([]string{"--", "exec", "foo"})

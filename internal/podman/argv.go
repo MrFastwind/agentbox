@@ -12,7 +12,7 @@ package podman
 import (
 	"strconv"
 
-	"container-agent/internal/policy"
+	"agentbox/internal/policy"
 )
 
 // Argv renders the full podman argument list, excluding the program name.
@@ -95,7 +95,7 @@ func Argv(spec *policy.ResolvedSpec, opts Options) []string {
 
 // SeededFilesMountDest is where session stages allow-listed seed files for the
 // entrypoint to copy into the agent's writable config directory.
-const SeededFilesMountDest = "/run/container-agent/seeds"
+const SeededFilesMountDest = "/run/agentbox/seeds"
 
 // Options are the parts of a run that are not decisions about security.
 type Options struct {

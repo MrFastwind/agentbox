@@ -3,8 +3,8 @@ package policy
 import (
 	"fmt"
 
-	"container-agent/internal/agent"
-	"container-agent/internal/fsx"
+	"agentbox/internal/agent"
+	"agentbox/internal/fsx"
 )
 
 // Resolver turns a Request into a ResolvedSpec. It is the only place that

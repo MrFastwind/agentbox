@@ -1,6 +1,6 @@
-# Example container-agent project configuration.
+# Example agentbox project configuration.
 #
-# Pass it explicitly:  container-agent --config container-agent.yaml
+# Pass it explicitly:  agentbox --config agentbox.yaml
 #
 # There is deliberately NO auto-discovery. A configuration file that is picked up
 # from the working directory is not configuration, it is remote policy: a cloned
@@ -18,7 +18,7 @@ agent: opencode
 # podman resolves an unqualified name against the host's registry search list,
 # which is not configured here, so a short name means a different image on a
 # different machine.
-# image: localhost/container-agent/opencode:latest
+# image: localhost/agentbox/opencode:latest
 
 # Launch directory. Defaults to the current directory.
 # workdir: .

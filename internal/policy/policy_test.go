@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"container-agent/internal/agent"
-	"container-agent/internal/fsx"
-	"container-agent/internal/policy"
+	"agentbox/internal/agent"
+	"agentbox/internal/fsx"
+	"agentbox/internal/policy"
 )
 
 const testHome = "/home/u"

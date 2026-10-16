@@ -3,8 +3,8 @@ package policy
 import (
 	"path/filepath"
 
-	"container-agent/internal/agent"
-	"container-agent/internal/fsx"
+	"agentbox/internal/agent"
+	"agentbox/internal/fsx"
 )
 
 // collectSeeds reads the allow-listed seed files for a StrategySeed agent.

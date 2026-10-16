@@ -5,7 +5,7 @@ package session
 import "os"
 
 // ephemeralDir on non-Linux platforms falls back to the system temporary
-// directory. container-agent targets rootless podman on Linux; this exists so
+// directory. agentbox targets rootless podman on Linux; this exists so
 // the package still builds elsewhere.
 func ephemeralDir(pattern string) (string, error) {
 	dir, err := os.MkdirTemp("", pattern)

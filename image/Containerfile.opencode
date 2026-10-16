@@ -3,7 +3,7 @@
 # Deliberately carries no Node runtime. opencode is a self-contained native
 # binary, and bundling Node for pi's sake would make every opencode user pay for
 # a runtime they never invoke.
-ARG BASE=localhost/container-agent/base:latest
+ARG BASE=localhost/agentbox/base:latest
 FROM ${BASE}
 
 # Pin this. An unpinned agent install means the sandbox image changes underneath
@@ -20,5 +20,5 @@ RUN curl -fsSL https://opencode.ai/install | bash \
 # Fail the build rather than shipping an image whose agent cannot start.
 RUN opencode --version
 
-ENTRYPOINT ["/usr/local/bin/container-agent-entrypoint"]
+ENTRYPOINT ["/usr/local/bin/agentbox-entrypoint"]
 CMD ["opencode"]
