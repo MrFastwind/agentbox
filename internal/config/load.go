@@ -31,6 +31,11 @@ type File struct {
 	Mounts    []string `yaml:"mounts"`
 	Command   []string `yaml:"command"`
 
+	// Workspace mounts a subdirectory as the workspace; ReadOnlyWorkspace makes
+	// that workspace read-only.
+	Workspace         string `yaml:"workspace"`
+	ReadOnlyWorkspace bool   `yaml:"read_only_workspace"`
+
 	// UserConfig is a pointer so that "unset" is distinguishable from "false".
 	UserConfig *bool `yaml:"user_config"`
 }

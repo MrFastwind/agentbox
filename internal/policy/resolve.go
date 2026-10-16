@@ -2,6 +2,7 @@ package policy
 
 import (
 	"fmt"
+	"path/filepath"
 
 	"agentbox/internal/agent"
 	"agentbox/internal/fsx"
@@ -91,6 +92,18 @@ func (r *Resolver) Resolve(def agent.Definition, req Request) (*ResolvedSpec, er
 		}
 		launch = wd
 	}
+
+	// --workspace narrows (or moves) the mount to a subdirectory of the launch
+	// directory. It is validated by the same rules as any other launch path, so
+	// an escape ("..") that lands on a protected path is still refused.
+	if req.WorkspaceOverride != "" {
+		if filepath.IsAbs(req.WorkspaceOverride) {
+			launch = req.WorkspaceOverride
+		} else {
+			launch = filepath.Join(launch, req.WorkspaceOverride)
+		}
+	}
+
 	absLaunch, err := r.FS.Abs(launch)
 	if err != nil {
 		return nil, fmt.Errorf("resolving launch directory %s: %w", launch, err)
@@ -101,8 +114,12 @@ func (r *Resolver) Resolve(def agent.Definition, req Request) (*ResolvedSpec, er
 	} else if err := deny.ValidateMount(resolvedLaunch); err != nil {
 		refusals = append(refusals, refusal(RefusalLaunchDir, resolvedLaunch, err.Error()))
 	} else {
+		workspaceAccess := RW
+		if req.ReadOnlyWorkspace {
+			workspaceAccess = RO
+		}
 		spec.Mounts = append(spec.Mounts, ResolvedMount{
-			Host: resolvedLaunch, Dest: ContainerWorkdir, Access: RW, Origin: "launch-dir",
+			Host: resolvedLaunch, Dest: ContainerWorkdir, Access: workspaceAccess, Origin: "launch-dir",
 		})
 	}
 

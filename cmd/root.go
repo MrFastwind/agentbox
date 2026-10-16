@@ -29,6 +29,8 @@ func runRoot(inv cli.Invocation) int {
 		memory       = fs.String("memory", "", "memory limit (default 4g)")
 		cpus         = fs.String("cpus", "", "CPU limit (default 2)")
 		pidsLimit    = fs.Int("pids-limit", 0, "process count limit (default 2048)")
+		workspace    = fs.String("workspace", "", "mount this subdirectory as the workspace instead of the launch directory")
+		roWorkspace  = fs.Bool("read-only-workspace", false, "mount the workspace read-only")
 		configPath   = fs.String("config", "", "project configuration file (never auto-discovered)")
 		printArgv    = fs.Bool("print-argv", false, "print the podman argv and exit")
 		auditLog     = fs.String("audit-log", "", "append a JSON decision record to this file")
@@ -86,6 +88,11 @@ func runRoot(inv cli.Invocation) int {
 	selected := pick(set["agent"], *agentName, cfgStr(func(c *config.File) string { return c.Agent }), "shell")
 	selectedImage := pick(set["image"], *image, cfgStr(func(c *config.File) string { return c.Image }), "")
 	selectedWorkdir := pick(set["workdir"], *workdir, cfgStr(func(c *config.File) string { return c.Workdir }), "")
+	selectedWorkspace := pick(set["workspace"], *workspace, cfgStr(func(c *config.File) string { return c.Workspace }), "")
+	readOnlyWorkspace := *roWorkspace
+	if !set["read-only-workspace"] && cfg != nil {
+		readOnlyWorkspace = cfg.ReadOnlyWorkspace
+	}
 	selectedNetwork := pick(set["network"], *network, cfgStr(func(c *config.File) string { return c.Network }), "")
 	selectedMemory := pick(set["memory"], *memory, cfgStr(func(c *config.File) string { return c.Memory }), "")
 	selectedCPUs := pick(set["cpus"], *cpus, cfgStr(func(c *config.File) string { return c.CPUs }), "")
@@ -133,17 +140,19 @@ func runRoot(inv cli.Invocation) int {
 	}
 
 	req := policy.Request{
-		AgentName:       selected,
-		NoUserConfig:    noConfig,
-		WorkdirOverride: selectedWorkdir,
-		ExtraMounts:     extraMounts,
-		EnvNames:        envNames,
-		NetworkMode:     selectedNetwork,
-		Memory:          selectedMemory,
-		CPUs:            selectedCPUs,
-		PidsLimit:       selectedPids,
-		Command:         command,
-		Image:           selectedImage,
+		AgentName:         selected,
+		NoUserConfig:      noConfig,
+		WorkdirOverride:   selectedWorkdir,
+		WorkspaceOverride: selectedWorkspace,
+		ReadOnlyWorkspace: readOnlyWorkspace,
+		ExtraMounts:       extraMounts,
+		EnvNames:          envNames,
+		NetworkMode:       selectedNetwork,
+		Memory:            selectedMemory,
+		CPUs:              selectedCPUs,
+		PidsLimit:         selectedPids,
+		Command:           command,
+		Image:             selectedImage,
 	}
 
 	resolver := policy.NewResolver(fsx.Real{}, os.LookupEnv)

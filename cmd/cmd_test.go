@@ -265,6 +265,8 @@ func TestRunRootConfigMerging(t *testing.T) {
 		"env:\n  - TERM\n" +
 		"mounts:\n  - /tmp/src:/data:ro\n" +
 		"command:\n  - echo\n  - from-cfg\n" +
+		"workspace: sub\n" +
+		"read_only_workspace: true\n" +
 		"user_config: false\n"
 	if err := os.WriteFile(cfg, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
@@ -290,6 +292,26 @@ func TestRunRootConfigMerging(t *testing.T) {
 	}
 	if !gotReq.NoUserConfig {
 		t.Fatal("user_config:false must force --no-user-config behaviour")
+	}
+	if gotReq.WorkspaceOverride != "sub" || !gotReq.ReadOnlyWorkspace {
+		t.Fatalf("workspace config not merged: %+v", gotReq)
+	}
+}
+
+func TestRunRootWorkspaceFlags(t *testing.T) {
+	var gotReq policy.Request
+	stubRun(t, func(_ session.Options, _ agent.Definition, req policy.Request) (int, error) {
+		gotReq = req
+		return 0, nil
+	})
+	code, _, errb := capture(t, func() int {
+		return runRoot(cli.Invocation{Args: []string{"--agent", "shell", "--workspace", "sub", "--read-only-workspace"}})
+	})
+	if code != 0 {
+		t.Fatalf("exit = %d (stderr=%s)", code, errb)
+	}
+	if gotReq.WorkspaceOverride != "sub" || !gotReq.ReadOnlyWorkspace {
+		t.Fatalf("workspace flags not wired: %+v", gotReq)
 	}
 }
 

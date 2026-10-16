@@ -25,6 +25,8 @@ network: none
 memory: 8g
 cpus: "1.5"
 pids_limit: 4096
+workspace: sub
+read_only_workspace: true
 env:
   - ANTHROPIC_API_KEY
   - TERM
@@ -44,6 +46,9 @@ user_config: true
 	}
 	if f.Network != "none" || f.Memory != "8g" || f.CPUs != "1.5" || f.PidsLimit != 4096 {
 		t.Fatalf("resource fields not decoded: %+v", f)
+	}
+	if f.Workspace != "sub" || !f.ReadOnlyWorkspace {
+		t.Fatalf("workspace fields not decoded: %+v", f)
 	}
 	if strings.Join(f.Env, ",") != "ANTHROPIC_API_KEY,TERM" {
 		t.Fatalf("env not decoded: %v", f.Env)

@@ -80,6 +80,17 @@ func (o Options) Boot(def agent.Definition, req policy.Request) (int, error) {
 		Origin: "state",
 	})
 
+	// Re-validate the mounts that were decided from host paths. Resolution
+	// already resolved symlinks and applied the deny-list, but the filesystem
+	// can change between that decision and the moment podman opens the path.
+	// The state and seed mounts appended above are program-owned and are
+	// skipped by Revalidate.
+	if o.Resolver != nil {
+		if err := o.Resolver.Revalidate(spec); err != nil {
+			return 1, err
+		}
+	}
+
 	// Allow-listed seed files, staged read-only for the entrypoint to copy into
 	// the writable config directory.
 	if len(spec.Seed) > 0 {

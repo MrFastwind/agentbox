@@ -74,6 +74,8 @@ func runDoctor(args []string) int {
 
 	fmt.Println("workspace")
 	fmt.Println("  the launch directory is writable by default: blast radius is the project tree")
+	fmt.Println("  --read-only-workspace: mount the workspace read-only (agent cannot modify the project)")
+	fmt.Println("  --workspace <subdir> : mount a subdirectory as the workspace instead of the launch directory")
 
 	return 0
 }
