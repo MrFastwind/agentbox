@@ -11,6 +11,11 @@ import (
 	"agentbox/internal/policy"
 )
 
+// commandContext is exec.CommandContext, indirected so the run path can be
+// exercised without podman: a test can substitute a process it controls and
+// assert exit-code propagation, signal handling and the Assert gate.
+var commandContext = exec.CommandContext
+
 // Run executes podman with the given argv, wiring the container's stdio to ours
 // so terminals and TUIs behave.
 //
@@ -25,7 +30,13 @@ func Run(spec *policy.ResolvedSpec, args []string, stdin *os.File, stdout, stder
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	cmd := exec.CommandContext(ctx, "podman", args...)
+	return run(ctx, args, stdin, stdout, stderr)
+}
+
+// run is the part of Run that touches the world. It is separated so the
+// exit-status interpretation can be tested against a controlled process.
+func run(ctx context.Context, args []string, stdin *os.File, stdout, stderr *os.File) (int, error) {
+	cmd := commandContext(ctx, "podman", args...)
 	cmd.Stdin = stdin
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
