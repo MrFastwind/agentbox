@@ -18,7 +18,7 @@ FLOORS=(
   "internal/policy:90"
   "internal/podman:90"
   "internal/audit:90"
-  "internal/session:85"
+  "internal/session:90"
 )
 
 out="$(go test ./... -cover -count=1 2>&1)" || { echo "$out"; exit 1; }

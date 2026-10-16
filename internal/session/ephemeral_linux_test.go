@@ -53,6 +53,34 @@ func TestEphemeralDirFallsBackWhenNoTmpfs(t *testing.T) {
 	}
 }
 
+// A base that cannot be statfs'd is skipped, not fatal, and the search moves on
+// to the next candidate. "/nonexistent-..." guarantees isTmpfs is false.
+func TestEphemeralDirSkipsUnusableBase(t *testing.T) {
+	saved := ephemeralBases
+	ephemeralBases = []string{"/nonexistent-agentbox-base-dir"}
+	t.Cleanup(func() { ephemeralBases = saved })
+
+	dir, err := ephemeralDir("agentbox-skip-")
+	if err != nil {
+		t.Fatalf("a skipped base must still yield a directory: %v", err)
+	}
+	defer os.RemoveAll(dir)
+}
+
+// With no usable base at all, the failure must be reported rather than a fake
+// success.
+func TestEphemeralDirReportsErrorWhenNoTempIsUsable(t *testing.T) {
+	saved := ephemeralBases
+	ephemeralBases = nil
+	t.Cleanup(func() { ephemeralBases = saved })
+
+	// os.MkdirTemp("") falls back to TMPDIR; point it somewhere absent.
+	t.Setenv("TMPDIR", filepath.Join(t.TempDir(), "missing"))
+	if _, err := ephemeralDir("agentbox-none-"); err == nil {
+		t.Fatal("expected an error when no temporary directory is usable")
+	}
+}
+
 // A tmpfs base that cannot be written to must be skipped, not fatal: the state
 // directory is required for the sandbox to run at all.
 func TestEphemeralDirSkipsUnwritableTmpfs(t *testing.T) {
