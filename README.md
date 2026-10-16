@@ -62,7 +62,10 @@ which is auditable: every seeded file's size and SHA-256 go to the audit log.
    *remote* (reads/writes code and coins, not just a token conversation) has
    no other writable host surface: rootfs is ro, HOME evaporates, nothing on
    disk survives. `trust.json` (pi) is never seeded precisely because it is the
-   facility by which a repository gains high trust state.
+   facility by which a repository gains high trust state. When even that tree
+   must not be touched, `--read-only-workspace` mounts it `:ro` and
+   `--workspace DIR` narrows the run to a subdirectory; both are validated by
+   the same deny-list as a launch directory.
 2. **"Trusted vs untrusted agent" is not decided for you.** By default, host
    configuration that carries credential-shaped keys (`cli.json`,
    `service.json`) is mounted read-only with an audit warning
@@ -96,6 +99,8 @@ agentbox version
 
 Flags: `--agent`, `--workdir`, `--image`, `--no-user-config`, `--env NAME`
 (repeatable, allow-listed), `--mount SRC:DST[:ro|rw]` (deny-listed, ro default),
+`--workspace DIR` (mount a subdirectory instead of the launch dir),
+`--read-only-workspace` (mount the workspace `:ro`),
 `--network`, `--memory`, `--cpus`, `--pids-limit`, `--config FILE`,
 `--strict-config`, `--print-argv`, `--audit-log FILE`, `--shell`.
 
