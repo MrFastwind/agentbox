@@ -4,7 +4,9 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"sort"
+	"strings"
 
 	"agentbox/internal/agent"
 	"agentbox/internal/audit"
@@ -146,6 +148,12 @@ func runRoot(inv cli.Invocation) int {
 		Image:           selectedImage,
 	}
 
+	// Auto-build default images if missing.
+	if err := ensureImageAvailable(req.Image, def, noConfig); err != nil {
+		fmt.Fprintf(os.Stderr, "agentbox: %v\n", err)
+		return 1
+	}
+
 	resolver := policy.NewResolver(fsx.Real{}, os.LookupEnv)
 	resolver.Strict = *strictConfig
 
@@ -205,6 +213,39 @@ first position; use "--" to run one of them as a program instead.
 Flags:
 `)
 	fs.PrintDefaults()
+}
+
+func ensureImageAvailable(reqImage string, def agent.Definition, noUserConfig bool) error {
+	image := reqImage
+	if image == "" {
+		image = def.Image
+	}
+	// Only auto-build if it's a default (localhost/agentbox/...) image.
+	// Custom images must exist; let podman fail with a clear error if not.
+	if !strings.HasPrefix(image, agent.ImageRepository+"/") {
+		return nil
+	}
+	// Check if image exists locally.
+	if imageExists(image) {
+		return nil
+	}
+	// Determine targets to build. Need base if target isn't base.
+	target := strings.TrimPrefix(image, agent.ImageRepository+"/")
+	if idx := strings.Index(target, ":"); idx >= 0 {
+		target = target[:idx]
+	}
+	var targets []string
+	if target == "base" || target == "shell" {
+		targets = []string{"base"}
+	} else {
+		targets = []string{"base", target}
+	}
+	return buildTargets(targets)
+}
+
+func imageExists(ref string) bool {
+	cmd := exec.Command("podman", "image", "exists", ref)
+	return cmd.Run() == nil
 }
 
 // sortedMountSummary is used by tests and diagnostics.

@@ -21,17 +21,22 @@ func runImages(args []string) int {
 		targets = []string{"base", "opencode", "pi"}
 	}
 
-	dir, err := imageDir()
-	if err != nil {
+	if err := buildTargets(targets); err != nil {
 		fmt.Fprintf(os.Stderr, "agentbox: %v\n", err)
 		return 1
 	}
+	return 0
+}
 
+func buildTargets(targets []string) error {
+	dir, err := imageDir()
+	if err != nil {
+		return err
+	}
 	for _, t := range targets {
 		dockerfile := filepath.Join(dir, "Containerfile."+t)
 		if _, err := os.Stat(dockerfile); err != nil {
-			fmt.Fprintf(os.Stderr, "agentbox: no Containerfile for %q\n", t)
-			return 1
+			return fmt.Errorf("no Containerfile for %q", t)
 		}
 		tag := agent.DefaultImage(t)
 
@@ -49,11 +54,10 @@ func runImages(args []string) int {
 		cmd.Stderr = os.Stderr
 		cmd.Stdin = os.Stdin
 		if err := cmd.Run(); err != nil {
-			fmt.Fprintf(os.Stderr, "agentbox: build failed for %s: %v\n", t, err)
-			return 1
+			return fmt.Errorf("build failed for %s: %w", t, err)
 		}
 	}
-	return 0
+	return nil
 }
 
 // imageDir locates the image/ directory: next to the executable, or in the
