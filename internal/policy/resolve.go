@@ -29,6 +29,34 @@ func NewResolver(fs fsx.FS, lookupEnv func(string) (string, bool)) *Resolver {
 	return &Resolver{FS: fs, LookupEnv: lookupEnv, Egress: DefaultEgress{}}
 }
 
+// denyList builds this resolver's deny-list from the home directory it can
+// see. Resolve computes its own with the same two calls so that an unresolvable
+// home stays a hard error there; this fallback exists for AgentConfigDecisions,
+// which has no launch directory to fail on.
+func (r *Resolver) denyList() DenyList {
+	home, err := r.FS.UserHomeDir()
+	if err != nil || home == "" {
+		return NewDenyList("/")
+	}
+	resolved, err := r.FS.EvalSymlinks(home)
+	if err != nil {
+		resolved = home
+	}
+	return NewDenyList(resolved)
+}
+
+// AgentConfigDecisions reports what mounting one agent's configuration
+// directory would do — the mounts it would create, and the refusals it would
+// record — without needing a request, a launch directory or a runtime.
+//
+// doctor uses it so that symlink handling is visible before anything is run:
+// which config links are followed, and which are skipped and why. Without it
+// those decisions reach only the audit log, and a user discovers a skipped
+// link by the agent failing to find its skills.
+func (r *Resolver) AgentConfigDecisions(def agent.Definition) ([]ResolvedMount, []Refusal) {
+	return r.agentConfigMounts(def, r.denyList())
+}
+
 // ContainerWorkdir is where the launch directory appears.
 const ContainerWorkdir = "/workspace"
 
@@ -134,7 +162,7 @@ func (r *Resolver) Resolve(def agent.Definition, req Request) (*ResolvedSpec, er
 
 	switch def.Strategy {
 	case agent.StrategyMount:
-		mounts, refs := r.agentConfigMounts(def)
+		mounts, refs := r.agentConfigMounts(def, deny)
 		spec.Mounts = append(spec.Mounts, mounts...)
 		refusals = append(refusals, refs...)
 	case agent.StrategySeed:

@@ -93,8 +93,14 @@ type Definition struct {
 	// SeedFiles is the allow-list, used by StrategySeed.
 	SeedFiles []SeedSpec
 
-	// SymlinkTargetPrefixes bounds where a followed symlink may point, by real
-	// path. Used by StrategyMount.
+	// SymlinkTargetPrefixes bounds where a followed config symlink may point.
+	// The link is followed when its resolved target sits under one of these,
+	// or when the link as written does — the second because a home directory
+	// may itself reach outside its own real path (~/media -> /run/media/...),
+	// and a home-relative link is then an ordinary path to whoever wrote it.
+	// Whatever the bound admits must still clear the deny-list. Used by
+	// StrategyMount; the rule itself lives in internal/policy, since a
+	// registry entry may not weaken it.
 	SymlinkTargetPrefixes []string
 
 	// DeniedNames are filename patterns that are never mounted out of

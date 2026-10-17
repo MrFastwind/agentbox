@@ -28,10 +28,19 @@ The code is normative; this section keeps the plan from lying.
    exit. The directory's subpaths are pre-created 0700 so that `XDG_*` parents
    are writable and the ro config mounts land on user-owned mountpoints.
    Security outcome is the same: writable state is ephemeral and discarded.
-3. **A config-directory symlink whose target escapes the allowed prefixes is
-   skipped with a warning, not fatal.** Real host: `~/.config/opencode/skills`
-   points onto a different mount. Refusing the whole run made a legitimate
-   layout unusable; not mounting the link is safe and auditable.
+3. **A config-directory symlink is followed when either form of its path sits
+   inside an allowed prefix, and skipped with a warning — not fatal — when
+   neither does.** Real host: `~/.config/opencode/skills` points onto a
+   different mount, reached *through* a symlink in the home directory
+   (`~/media -> /run/media/...`), so the link resolves outside `realpath(home)`
+   while being written entirely inside it. Judged on the resolved path alone,
+   the entry was skipped and the agent silently lost its skills. The bound
+   therefore admits the link as written as well as the resolved target, and the
+   resolved target must then clear the deny-list — which is what still refuses a
+   link into `~/.ssh`, that being a credential directory rather than merely
+   being under home. Refusing the whole run would have made a legitimate layout
+   unusable; skipping is safe and auditable, and is now also visible — on
+   stderr and in `doctor`, not only in the audit log.
 4. **`--strict-config` turns the S-30 credential-assertion from a warning into
    a refusal.** The plan's status for configuration that carries
    credential-shaped keys (claude.json, service.json) was an open question —

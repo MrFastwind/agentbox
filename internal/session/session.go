@@ -49,6 +49,18 @@ func (o Options) Boot(def agent.Definition, req policy.Request) (int, error) {
 		return 1, err
 	}
 
+	// A decision not to mount something is a decision the user has to see.
+	// Refusals reach the audit log either way, but an audit file nobody has
+	// opened cannot explain why the agent has no skills directory — which is
+	// precisely how a skipped config symlink gets noticed.
+	if o.Stderr != nil {
+		for _, ref := range spec.Refusals {
+			if !ref.Fatal {
+				fmt.Fprintf(o.Stderr, "agentbox: %s\n", ref.String())
+			}
+		}
+	}
+
 	var cleanups []func()
 	defer func() {
 		for i := len(cleanups) - 1; i >= 0; i-- {

@@ -259,6 +259,120 @@ func TestConfigSymlinkOutsidePrefixesSkipped(t *testing.T) {
 	}
 }
 
+// The realistic layout: the home directory reaches outside itself through a
+// symlink (~/media -> /media/u/data), so a home-relative config link resolves to
+// a path that is NOT under realpath(home). The logical arm of the bound has to
+// accept it — otherwise the link is silently skipped and the agent simply has no
+// skills — and the mount is still read-only.
+func TestConfigSymlinkThroughHomeIndirectionFollowed(t *testing.T) {
+	f := fsx.NewFake(testHome, testHome+"/project")
+	f.Mkdir(testHome + "/project")
+	f.Mkdir(testHome + "/.config/opencode")
+	f.Write(testHome+"/.config/opencode/opencode.json", []byte(`{"model":"m"}`))
+
+	f.Mkdir("/media/u/data/skills")
+	f.Symlink("/media/u/data", testHome+"/media")
+	f.Symlink(testHome+"/media/skills", testHome+"/.config/opencode/skills")
+
+	spec := mustResolve(t, f, "opencode", policy.Request{LaunchDir: testHome + "/project"})
+
+	if !hasMount(spec, func(m policy.ResolvedMount) bool {
+		return m.Origin == "symlink" &&
+			m.Access == policy.RO &&
+			m.Host == "/media/u/data/skills" &&
+			strings.HasSuffix(m.Dest, "/skills")
+	}) {
+		t.Fatalf("a home-relative link resolving outside realpath(home) must be followed "+
+			"(mounts=%+v refusals=%+v)", spec.Mounts, spec.Refusals)
+	}
+}
+
+// A relative link written into the config directory, crossing a home symlink out
+// to another volume: the resolved target leaves home, the link as written does
+// not. This is the branch that reads the link back rather than trusting the
+// resolved path alone.
+func TestConfigRelativeSymlinkThroughHomeIndirectionFollowed(t *testing.T) {
+	f := fsx.NewFake(testHome, testHome+"/project")
+	f.Mkdir(testHome + "/project")
+	f.Mkdir(testHome + "/.config/opencode")
+	f.Write(testHome+"/.config/opencode/opencode.json", []byte(`{"model":"m"}`))
+
+	f.Write("/media/u/data/skill.json", []byte(`{}`))
+	f.Symlink("/media/u/data", testHome+"/outside")
+	f.Symlink("../../outside/skill.json", testHome+"/.config/opencode/rel")
+
+	spec := mustResolve(t, f, "opencode", policy.Request{LaunchDir: testHome + "/project"})
+
+	if !hasMount(spec, func(m policy.ResolvedMount) bool {
+		return m.Origin == "symlink" &&
+			m.Host == "/media/u/data/skill.json" &&
+			strings.HasSuffix(m.Dest, "/rel")
+	}) {
+		t.Fatalf("a relative link crossing a home symlink must be followed "+
+			"(mounts=%+v refusals=%+v)", spec.Mounts, spec.Refusals)
+	}
+}
+
+// The prefix bound only establishes "inside the user's home", and home is where
+// the credentials live. A config link into ~/.ssh passes that bound and must
+// still be refused by the deny-list, which is the rule that actually separates
+// configuration from credentials.
+func TestConfigSymlinkToSensitiveDirDenied(t *testing.T) {
+	f := opencodeHost()
+	f.Symlink(testHome+"/.ssh", testHome+"/.config/opencode/notes")
+
+	spec := mustResolve(t, f, "opencode", policy.Request{LaunchDir: testHome + "/project"})
+
+	for _, m := range spec.Mounts {
+		if strings.HasSuffix(m.Dest, "/notes") {
+			t.Fatalf("a symlink pointing at ~/.ssh must not be mounted: %+v", m)
+		}
+	}
+	warned := false
+	for _, r := range spec.Refusals {
+		if r.Kind == policy.RefusalSymlink && !r.Fatal && strings.Contains(r.Reason, "deny-listed") {
+			warned = true
+		}
+	}
+	if !warned {
+		t.Fatalf("expected a deny-list warning for the ~/.ssh symlink, got %+v", spec.Refusals)
+	}
+}
+
+// doctor asks the resolver what mounting the config directory would do, with no
+// request and no launch directory, so a skipped link is visible before a run.
+func TestAgentConfigDecisionsShowsFollowedAndSkipped(t *testing.T) {
+	f := opencodeHost()
+	f.Mkdir("/etc")
+	f.Write("/etc/passwd", []byte("root:x:0:0"))
+	f.Symlink("/etc/passwd", testHome+"/.config/opencode/escape")
+
+	def, err := agent.New(testHome).Get("opencode")
+	if err != nil {
+		t.Fatalf("registry: %v", err)
+	}
+	mounts, refs := policy.NewResolver(f, envFunc(nil)).AgentConfigDecisions(def)
+
+	followed := false
+	for _, m := range mounts {
+		if m.Origin == "symlink" && strings.HasSuffix(m.Dest, "/skills") {
+			followed = true
+		}
+	}
+	if !followed {
+		t.Fatalf("doctor must see the followed skills link, got mounts=%+v", mounts)
+	}
+	skipped := false
+	for _, r := range refs {
+		if r.Kind == policy.RefusalSymlink && !r.Fatal && strings.Contains(r.Reason, "outside the allowed prefixes") {
+			skipped = true
+		}
+	}
+	if !skipped {
+		t.Fatalf("doctor must see the skipped link, got refusals=%+v", refs)
+	}
+}
+
 // --- pi seeding -------------------------------------------------------------
 
 func TestPiSeedsOnlyAllowListedFiles(t *testing.T) {

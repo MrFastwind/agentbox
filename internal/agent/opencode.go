@@ -22,9 +22,13 @@ func opencodeDef(home string) Definition {
 		ConfigDir:            filepath.Join(home, ".config", "opencode"),
 		ConfigDirInContainer: configInContainer,
 
-		// ~/.config/opencode/skills is a symlink out of the config directory.
-		// A followed link must land inside the user's home; anything else is
-		// refused rather than silently mounted.
+		// ~/.config/opencode/skills is a symlink out of the config directory,
+		// typically onto another volume — the home directory itself reaches
+		// out through ~/media, so the link can resolve outside realpath(home)
+		// while being written entirely inside it. The bound accepts either
+		// form, and the resolved target must then clear the deny-list, which
+		// is what still refuses a link into ~/.ssh. A link failing either
+		// check is skipped with a warning, never silently mounted.
 		SymlinkTargetPrefixes: []string{home},
 
 		// Even though the directory is mounted, these names never cross. This

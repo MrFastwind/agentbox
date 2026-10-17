@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"agentbox/internal/agent"
+	"agentbox/internal/fsx"
+	"agentbox/internal/policy"
 )
 
 // runDoctor reports the facts a run depends on, and — importantly — which mode
@@ -28,6 +30,7 @@ func runDoctor(args []string) int {
 	fmt.Println()
 
 	fmt.Println("agents")
+	resolver := policy.NewResolver(fsx.Real{}, os.LookupEnv)
 	for _, name := range reg.Names() {
 		def, err := reg.Get(name)
 		if err != nil {
@@ -55,6 +58,21 @@ func runDoctor(args []string) int {
 		}
 		if len(def.EnvAllowlist) > 0 {
 			fmt.Printf("    env allowlist %s\n", strings.Join(def.EnvAllowlist, ", "))
+		}
+		// What would actually become a mount: which config links are followed,
+		// and which are skipped and why. This is shown before any run because a
+		// skipped link otherwise surfaces only in the audit log, or as the agent
+		// failing to find its skills.
+		if def.Strategy == agent.StrategyMount {
+			decisions, notes := resolver.AgentConfigDecisions(def)
+			for _, m := range decisions {
+				if m.Origin == "symlink" {
+					fmt.Printf("    link          %s -> %s\n", m.Host, m.Dest)
+				}
+			}
+			for _, n := range notes {
+				fmt.Printf("    note          %s\n", n.String())
+			}
 		}
 	}
 	fmt.Println()

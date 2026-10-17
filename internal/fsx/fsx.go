@@ -15,6 +15,11 @@ import (
 type FS interface {
 	Abs(string) (string, error)
 	EvalSymlinks(string) (string, error)
+	// Readlink returns a symlink's own target as written, without resolving
+	// it. EvalSymlinks answers "where does this end up"; Readlink answers
+	// "what did the configuration say". Deciding whether a followed link may
+	// be mounted needs both.
+	Readlink(string) (string, error)
 	Lstat(string) (os.FileInfo, error)
 	ReadFile(string) ([]byte, error)
 	ReadDir(string) ([]os.DirEntry, error)
@@ -27,6 +32,7 @@ type Real struct{}
 
 func (Real) Abs(p string) (string, error)            { return filepath.Abs(p) }
 func (Real) EvalSymlinks(p string) (string, error)   { return filepath.EvalSymlinks(p) }
+func (Real) Readlink(p string) (string, error)       { return os.Readlink(p) }
 func (Real) Lstat(p string) (os.FileInfo, error)     { return os.Lstat(p) }
 func (Real) ReadFile(p string) ([]byte, error)       { return os.ReadFile(p) }
 func (Real) ReadDir(p string) ([]os.DirEntry, error) { return os.ReadDir(p) }

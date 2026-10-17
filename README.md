@@ -86,6 +86,13 @@ which is auditable: every seeded file's size and SHA-256 go to the audit log.
    `doctor`, `version`) are recognized only in first position, so
    `agentbox exec foo` runs the `exec` subcommand and
    `agentbox -- exec foo` runs the program `exec` inside the sandbox.
+7. **Config symlinks are followed, and refused, in the open.** A link such as
+   `~/.config/opencode/skills -> …/agent-skills/skills` is followed even when it
+   lands on another volume, and is mounted read-only at its own path. A link
+   resolving outside your home — or into a deny-listed path such as `~/.ssh` —
+   is *skipped*, never mounted: it is printed to stderr, listed by `doctor`, and
+   recorded in the audit log, so a missing skills directory is explained rather
+   than discovered.
 
 ## Commands
 

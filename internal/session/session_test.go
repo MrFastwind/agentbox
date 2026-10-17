@@ -2,6 +2,7 @@ package session
 
 import (
 	"encoding/hex"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -256,6 +257,63 @@ func TestBootResolverFailureReturnsError(t *testing.T) {
 	}
 	if code != 1 {
 		t.Fatalf("refusal should report code 1, got %d", code)
+	}
+}
+
+// A decision not to mount something has to be visible where the user is
+// looking. The audit log is opt-in, so a warning that only reaches it might as
+// well not exist: a skipped config symlink would still be discovered by the
+// agent failing to find its skills.
+func TestBootPrintsNonFatalWarningsToStderr(t *testing.T) {
+	withRun(t, func(*policy.ResolvedSpec, []string, *os.File, *os.File, *os.File) (int, error) {
+		return 0, nil
+	})
+
+	out, err := os.CreateTemp(t.TempDir(), "argv")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer out.Close()
+	stderrR, stderrW, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stderrR.Close()
+
+	f := fsx.NewFake(testHome, testProject)
+	f.Mkdir(testProject)
+	f.Write("/etc/passwd", []byte("root:x:0:0"))
+	f.Mkdir(testHome + "/.config/opencode")
+	f.Write(testHome+"/.config/opencode/opencode.json", []byte(`{"model":"m"}`))
+	f.Symlink("/etc/passwd", testHome+"/.config/opencode/escape")
+
+	def := agent.Definition{
+		Name:                  "ci",
+		Image:                 "localhost/agentbox/base:latest",
+		Command:               []string{"/bin/bash", "-l"},
+		Strategy:              agent.StrategyMount,
+		ConfigDir:             testHome + "/.config/opencode",
+		ConfigDirInContainer:  "/home/agent/.config/opencode",
+		SymlinkTargetPrefixes: []string{testHome},
+		BaseEnv:               map[string]string{"HOME": "/home/agent", "PATH": "/usr/bin"},
+		StateDirs:             []string{"/home/agent"},
+	}
+
+	o := options(f, out)
+	o.Stderr = stderrW
+	if code, err := o.Boot(def, policy.Request{LaunchDir: testProject}); err != nil || code != 0 {
+		t.Fatalf("Boot = (%d, %v), want (0, nil)", code, err)
+	}
+	if err := stderrW.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	raw, err := io.ReadAll(stderrR)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "outside the allowed prefixes") {
+		t.Fatalf("stderr must explain the skipped symlink, got: %q", raw)
 	}
 }
 

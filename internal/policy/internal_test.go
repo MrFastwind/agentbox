@@ -308,3 +308,70 @@ func TestJoinPaths(t *testing.T) {
 		t.Fatalf("joinPaths(nil) = %q", got)
 	}
 }
+
+// --- symlink bound: the link can vanish mid-check ---------------------------
+
+// readlinkFails models the window between ReadDir reporting a symlink and
+// Readlink being able to open it: the link is removed or swapped in between.
+type readlinkFails struct {
+	fsx.FS
+	failOn string
+}
+
+func (r *readlinkFails) Readlink(p string) (string, error) {
+	if p == r.failOn {
+		return "", errors.New("readlink: no such file or directory")
+	}
+	return r.FS.Readlink(p)
+}
+
+// A config link whose own target cannot be read fails closed. Both halves use
+// the same link and the same resolved target; only whether Readlink succeeds
+// differs, which is what shows the written form of the link decided it.
+func TestSymlinkWithinPrefixesFailsClosedWhenReadlinkFails(t *testing.T) {
+	const link = "/home/u/.config/opencode/skills"
+	// Resolved outside the prefix but written inside it — the home-indirection
+	// case, where only the written form can justify following.
+	const resolved = "/media/u/data/skills"
+	prefixes := []string{"/home/u"}
+	noEnv := func(string) (string, bool) { return "", false }
+
+	f := fsx.NewFake("/home/u", "/home/u/project")
+	f.Mkdir("/home/u/.config/opencode")
+	f.Symlink("/home/u/media/skills", link)
+
+	if got := NewResolver(f, noEnv); !got.symlinkWithinPrefixes(link, resolved, prefixes, prefixes) {
+		t.Fatal("a link written inside home must be followed when it can be read")
+	}
+	if got := NewResolver(&readlinkFails{FS: f, failOn: link}, noEnv); got.symlinkWithinPrefixes(link, resolved, prefixes, prefixes) {
+		t.Fatal("a link whose target cannot be read must not be followed")
+	}
+}
+
+// --- deny-list fallback used by doctor --------------------------------------
+
+// doctor resolves no launch directory, so the deny-list it builds must still
+// bound paths when the home directory cannot be resolved.
+func TestDenyListFallbackWhenHomeUnresolvable(t *testing.T) {
+	noEnv := func(string) (string, bool) { return "", false }
+
+	t.Run("no home reported at all", func(t *testing.T) {
+		d := NewResolver(fsx.NewFake("", ""), noEnv).denyList()
+		if d.Home != "/" {
+			t.Fatalf("home = %q, want the / fallback", d.Home)
+		}
+		if err := d.ValidateMount("/etc/passwd"); err == nil {
+			t.Fatal("the fallback deny-list must still refuse /etc/passwd")
+		}
+	})
+
+	t.Run("home path does not resolve", func(t *testing.T) {
+		d := NewResolver(fsx.NewFake("/no/such/home", "/no/such/home"), noEnv).denyList()
+		if d.Home != "/no/such/home" {
+			t.Fatalf("home = %q, want the unresolved home", d.Home)
+		}
+		if err := d.ValidateMount("/no/such/home/.ssh/id_ed25519"); err == nil {
+			t.Fatal("the fallback deny-list must still refuse ~/.ssh")
+		}
+	})
+}

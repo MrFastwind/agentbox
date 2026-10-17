@@ -86,13 +86,21 @@ func (r *Resolver) explicitMount(deny DenyList, raw string) (ResolvedMount, Refu
 // inside the container; blindly following one lets a config directory point the
 // sandbox at an attacker-chosen host path.
 //
-// A symlink whose target lands outside the allowed prefixes is therefore NOT
-// followed. That is recorded as a warning and the entry is skipped rather than
-// aborting the run: not mounting a path is always safe, and a link out of the
-// config directory (a skills directory living on another volume, say) is a
-// legitimate layout that should not make the sandbox unusable. The outcome is
-// visible in doctor and in the audit log.
-func (r *Resolver) agentConfigMounts(def agent.Definition) ([]ResolvedMount, []Refusal) {
+// Two bounds therefore apply to a followed link. Its target must sit under an
+// allowed prefix — checked against the path the configuration actually wrote as
+// well as against the resolved real path, because a home directory legitimately
+// contains symlinks out to other volumes (~/media -> /run/media/...), which
+// would otherwise resolve outside realpath(home) and be refused — and it must
+// pass the same deny-list the launch directory obeys, so that a link into
+// ~/.ssh is refused even though it is "inside home".
+//
+// A link that fails either bound is NOT followed. That is recorded as a warning
+// and the entry is skipped rather than aborting the run: not mounting a path is
+// always safe, and a link out of the config directory (a skills directory
+// living on another volume, say) is a legitimate layout that should not make
+// the sandbox unusable. The outcome is visible in doctor, on stderr, and in the
+// audit log.
+func (r *Resolver) agentConfigMounts(def agent.Definition, deny DenyList) ([]ResolvedMount, []Refusal) {
 	dir, err := r.FS.EvalSymlinks(def.ConfigDir)
 	if err != nil {
 		return nil, []Refusal{refusal(RefusalAgent, def.ConfigDir,
@@ -102,14 +110,23 @@ func (r *Resolver) agentConfigMounts(def agent.Definition) ([]ResolvedMount, []R
 	var mounts []ResolvedMount
 	var refusals []Refusal
 
-	// Resolve the allowed prefixes up front, so comparison happens on real
-	// paths rather than on strings that a symlink can dress up.
-	prefixes := make([]string, 0, len(def.SymlinkTargetPrefixes))
+	// Two prefix sets are consulted when a config entry turns out to be a
+	// symlink.
+	//
+	// The resolved prefixes are the real paths, so a link cannot dress up an
+	// escaping target as a benign string. The logical prefixes are the paths
+	// as the configuration wrote them, which still matters because a home
+	// directory may contain symlinks out to other volumes: a home-relative
+	// link then resolves outside realpath(home) while remaining an ordinary
+	// path inside the user's home.
+	logicalPrefixes := make([]string, 0, len(def.SymlinkTargetPrefixes))
+	resolvedPrefixes := make([]string, 0, len(def.SymlinkTargetPrefixes))
 	for _, p := range def.SymlinkTargetPrefixes {
+		logicalPrefixes = append(logicalPrefixes, filepath.Clean(p))
 		if resolved, err := r.FS.EvalSymlinks(p); err == nil {
 			p = resolved
 		}
-		prefixes = append(prefixes, p)
+		resolvedPrefixes = append(resolvedPrefixes, p)
 	}
 
 	entries, err := r.FS.ReadDir(dir)
@@ -136,10 +153,19 @@ func (r *Resolver) agentConfigMounts(def agent.Definition) ([]ResolvedMount, []R
 					"not followed: dangling symlink ("+err.Error()+")"))
 				continue
 			}
-			if !underAny(target, prefixes) {
+			if !r.symlinkWithinPrefixes(src, target, logicalPrefixes, resolvedPrefixes) {
 				refusals = append(refusals, warn(RefusalSymlink, src,
 					fmt.Sprintf("not followed: target %s is outside the allowed prefixes (%s); "+
-						"the entry is skipped, not mounted", target, strings.Join(prefixes, ", "))))
+						"the entry is skipped, not mounted", target, strings.Join(resolvedPrefixes, ", "))))
+				continue
+			}
+			// The prefix bound only says "inside the user's own space", which
+			// includes ~/.ssh. The deny-list is what actually separates
+			// configuration from credentials, so a followed target obeys the
+			// same rule the launch directory obeys.
+			if err := deny.ValidateMount(target); err != nil {
+				refusals = append(refusals, warn(RefusalSymlink, src,
+					"not followed: target is deny-listed ("+err.Error()+")"))
 				continue
 			}
 			mounts = append(mounts, ResolvedMount{
@@ -174,4 +200,33 @@ func (r *Resolver) agentConfigMounts(def agent.Definition) ([]ResolvedMount, []R
 	}
 
 	return mounts, refusals
+}
+
+// symlinkWithinPrefixes decides whether a followed config symlink may be
+// mounted, and is the whole of the "where may a config link point" rule.
+//
+// It accepts a link whose resolved target is under a resolved prefix — the
+// original, strict reading — or a link whose own target as written is under a
+// logical prefix. The second arm is what makes an ordinary home-relative link
+// work when the home directory reaches outside itself through a symlink
+// (~/media -> /run/media/...): the link says "/home/u/...", which is inside the
+// user's home as far as the configuration is concerned, even though resolving
+// it lands on another volume.
+//
+// Passing this bound does not by itself permit the mount: the resolved target
+// must still clear the deny-list, which is what keeps ~/.ssh out on the grounds
+// that it is a credential directory rather than merely being under home.
+func (r *Resolver) symlinkWithinPrefixes(link, resolvedTarget string, logicalPrefixes, resolvedPrefixes []string) bool {
+	if underAny(resolvedTarget, resolvedPrefixes) {
+		return true
+	}
+	raw, err := r.FS.Readlink(link)
+	if err != nil {
+		return false
+	}
+	logical := raw
+	if !filepath.IsAbs(logical) {
+		logical = filepath.Join(filepath.Dir(link), logical)
+	}
+	return underAny(filepath.Clean(logical), logicalPrefixes)
 }

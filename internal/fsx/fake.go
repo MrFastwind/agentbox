@@ -132,6 +132,23 @@ func (f *Fake) ReadDir(p string) ([]os.DirEntry, error) {
 	return out, nil
 }
 
+// Readlink returns a symlink's target as it was written, resolving nothing —
+// the shape os.Readlink returns. A non-symlink or missing path is an error.
+func (f *Fake) Readlink(p string) (string, error) {
+	ap, err := f.Abs(p)
+	if err != nil {
+		return "", err
+	}
+	e, ok := f.Paths[ap]
+	if !ok {
+		return "", notExist(ap)
+	}
+	if e.Symlink == "" {
+		return "", &fs.PathError{Op: "readlink", Path: ap, Err: errors.New("invalid argument")}
+	}
+	return e.Symlink, nil
+}
+
 // EvalSymlinks resolves the path fully, following symlinks in every component,
 // mirroring filepath.EvalSymlinks. Missing paths produce a not-exist error.
 func (f *Fake) EvalSymlinks(p string) (string, error) {
