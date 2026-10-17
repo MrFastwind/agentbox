@@ -1,0 +1,344 @@
+package session
+
+import (
+	"encoding/hex"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"agentbox/internal/agent"
+	"agentbox/internal/audit"
+	"agentbox/internal/fsx"
+	"agentbox/internal/policy"
+)
+
+const (
+	testHome    = "/home/u"
+	testProject = testHome + "/project"
+)
+
+// baseDef is a minimal agent definition that exercises every boot stage: a
+// launch dir, a named state directory set, and one allow-listed seed file.
+func baseDef() agent.Definition {
+	return agent.Definition{
+		Name:                 "ci",
+		Image:                "localhost/agentbox/base:latest",
+		Command:              []string{"/bin/bash", "-l"},
+		Strategy:             agent.StrategySeed,
+		ConfigDir:            "/cfg",
+		ConfigDirInContainer: "/home/agent/.config/ci",
+		SeedFiles:            []agent.SeedSpec{{Rel: "settings.json", Transform: agent.Identity{}}},
+		BaseEnv:              map[string]string{"HOME": "/home/agent", "PATH": "/usr/bin"},
+		StateDirs:            []string{"/home/agent", "/home/agent/.config"},
+	}
+}
+
+func fakeHost() *fsx.Fake {
+	f := fsx.NewFake(testHome, testProject)
+	f.Mkdir(testProject)
+	f.Mkdir("/cfg")
+	f.Write("/cfg/settings.json", []byte(`{"theme":"dark"}`))
+	return f
+}
+
+func noEnv(string) (string, bool) { return "", false }
+
+func options(f *fsx.Fake, out *os.File) Options {
+	return Options{
+		Resolver: policy.NewResolver(f, noEnv),
+		Stdout:   out,
+	}
+}
+
+type runFn func(*policy.ResolvedSpec, []string, *os.File, *os.File, *os.File) (int, error)
+
+func withRun(t *testing.T, fn runFn) {
+	t.Helper()
+	saved := runPodman
+	runPodman = fn
+	t.Cleanup(func() { runPodman = saved })
+}
+
+func hasMount(spec *policy.ResolvedSpec, origin, dest string) bool {
+	for _, m := range spec.Mounts {
+		if m.Origin == origin && m.Dest == dest {
+			return true
+		}
+	}
+	return false
+}
+
+func argValue(args []string, flag string) (string, bool) {
+	for i, a := range args {
+		if a == flag && i+1 < len(args) {
+			return args[i+1], true
+		}
+	}
+	return "", false
+}
+
+func contains(args []string, want string) bool {
+	for _, a := range args {
+		if a == want {
+			return true
+		}
+	}
+	return false
+}
+
+func hasSeccompArg(args []string) bool {
+	for _, a := range args {
+		if strings.HasPrefix(a, "seccomp=") && len(a) > len("seccomp=") {
+			return true
+		}
+	}
+	return false
+}
+
+func TestBootPrintArgvStagesAndDoesNotRun(t *testing.T) {
+	withRun(t, func(*policy.ResolvedSpec, []string, *os.File, *os.File, *os.File) (int, error) {
+		t.Fatal("PrintArgv must not invoke podman")
+		return 1, nil
+	})
+
+	out, err := os.CreateTemp(t.TempDir(), "argv")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer out.Close()
+
+	o := options(fakeHost(), out)
+	o.PrintArgv = true
+	code, err := o.Boot(baseDef(), policy.Request{LaunchDir: testProject})
+	if err != nil || code != 0 {
+		t.Fatalf("Boot = (%d, %v), want (0, nil)", code, err)
+	}
+
+	raw, err := os.ReadFile(out.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	printed := string(raw)
+	for _, want := range []string{"--read-only", "--http-proxy=false", "--unsetenv-all", "--cap-drop"} {
+		if !strings.Contains(printed, want) {
+			t.Fatalf("printed argv missing %q:\n%s", want, printed)
+		}
+	}
+}
+
+func TestBootStagesStateAndSeedsAndRuns(t *testing.T) {
+	var gotSpec *policy.ResolvedSpec
+	var gotArgs []string
+	var seedFile []byte
+	var seedMode os.FileMode
+	var stateHost string
+
+	withRun(t, func(spec *policy.ResolvedSpec, args []string, _ *os.File, _ *os.File, _ *os.File) (int, error) {
+		gotSpec, gotArgs = spec, args
+		for _, m := range spec.Mounts {
+			switch m.Origin {
+			case "state":
+				stateHost = m.Host
+			case "seed":
+				info, err := os.Stat(filepath.Join(m.Host, "settings.json"))
+				if err != nil {
+					return 1, err
+				}
+				seedMode = info.Mode().Perm()
+				seedFile, _ = os.ReadFile(filepath.Join(m.Host, "settings.json"))
+			}
+		}
+		return 0, nil
+	})
+
+	code, err := options(fakeHost(), nil).Boot(baseDef(), policy.Request{LaunchDir: testProject})
+	if err != nil || code != 0 {
+		t.Fatalf("Boot = (%d, %v), want (0, nil)", code, err)
+	}
+
+	if stateHost == "" || !hasMount(gotSpec, "state", agent.ContainerHome) {
+		t.Fatalf("ephemeral HOME not mounted at %s: %+v", agent.ContainerHome, gotSpec.Mounts)
+	}
+	if !hasMount(gotSpec, "seed", "/run/agentbox/seeds") {
+		t.Fatalf("seed staging not mounted: %+v", gotSpec.Mounts)
+	}
+	if string(seedFile) != `{"theme":"dark"}` {
+		t.Fatalf("seed staged with wrong bytes: %q", seedFile)
+	}
+	if seedMode != 0o600 {
+		t.Fatalf("seed staged with mode %v, want 0600", seedMode)
+	}
+	if !contains(gotArgs, "--read-only") {
+		t.Fatalf("rendered argv lost hardening: %v", gotArgs)
+	}
+	if !hasSeccompArg(gotArgs) {
+		t.Fatalf("rendered argv does not install a seccomp profile: %v", gotArgs)
+	}
+
+	// The ephemeral HOME is removed when Boot returns.
+	if _, err := os.Stat(stateHost); !os.IsNotExist(err) {
+		t.Fatalf("ephemeral HOME %s was not cleaned up (err=%v)", stateHost, err)
+	}
+}
+
+func TestBootGeneratesNameWhenEmpty(t *testing.T) {
+	var name string
+	withRun(t, func(_ *policy.ResolvedSpec, args []string, _ *os.File, _ *os.File, _ *os.File) (int, error) {
+		name, _ = argValue(args, "--name")
+		return 0, nil
+	})
+	if _, err := options(fakeHost(), nil).Boot(baseDef(), policy.Request{LaunchDir: testProject}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(name, "agentbox-") {
+		t.Fatalf("generated name not derived from the program name: %q", name)
+	}
+	if _, err := hex.DecodeString(strings.TrimPrefix(name, "agentbox-")); err != nil {
+		t.Fatalf("generated name is not hex-encoded: %q", name)
+	}
+}
+
+func TestBootUsesProvidedName(t *testing.T) {
+	var name string
+	withRun(t, func(_ *policy.ResolvedSpec, args []string, _ *os.File, _ *os.File, _ *os.File) (int, error) {
+		name, _ = argValue(args, "--name")
+		return 0, nil
+	})
+	o := options(fakeHost(), nil)
+	o.Name = "my-container"
+	if _, err := o.Boot(baseDef(), policy.Request{LaunchDir: testProject}); err != nil {
+		t.Fatal(err)
+	}
+	if name != "my-container" {
+		t.Fatalf("explicit container name not honoured: %q", name)
+	}
+}
+
+// The audit record is written before podman starts and must never carry a
+// credential value, only the name that identifies it.
+func TestBootRecordsAuditWithoutSecrets(t *testing.T) {
+	withRun(t, func(*policy.ResolvedSpec, []string, *os.File, *os.File, *os.File) (int, error) {
+		return 0, nil
+	})
+
+	def := baseDef()
+	def.BaseEnv["TOKEN"] = "s3cr3t-value"
+
+	var log strings.Builder
+	o := options(fakeHost(), nil)
+	o.Audit = audit.New(&log)
+
+	if _, err := o.Boot(def, policy.Request{LaunchDir: testProject}); err != nil {
+		t.Fatal(err)
+	}
+	if log.Len() == 0 {
+		t.Fatal("audit logger recorded nothing")
+	}
+	if strings.Contains(log.String(), "s3cr3t-value") {
+		t.Fatalf("credential leaked into the audit record:\n%s", log.String())
+	}
+	if !strings.Contains(log.String(), "TOKEN") {
+		t.Fatalf("env name missing from the audit record:\n%s", log.String())
+	}
+}
+
+// A resolver failure must stop Boot before any ephemeral directory is created.
+func TestBootResolverFailureReturnsError(t *testing.T) {
+	withRun(t, func(*policy.ResolvedSpec, []string, *os.File, *os.File, *os.File) (int, error) {
+		t.Fatal("podman must not run when resolution fails")
+		return 1, nil
+	})
+	// A launch directory that does not exist cannot be resolved.
+	code, err := options(fakeHost(), nil).Boot(baseDef(), policy.Request{LaunchDir: "/does/not/exist"})
+	if err == nil {
+		t.Fatal("expected a refusal for a missing launch directory")
+	}
+	if code != 1 {
+		t.Fatalf("refusal should report code 1, got %d", code)
+	}
+}
+
+func TestPrepareStateDirsCreatesPrivateDirs(t *testing.T) {
+	stateDir := t.TempDir()
+	if err := prepareStateDirs(stateDir, []string{"/home/agent", "/home/agent/.config", "/home/agent/.local/share"}); err != nil {
+		t.Fatalf("prepareStateDirs: %v", err)
+	}
+	for _, rel := range []string{"", ".config", ".local/share"} {
+		p := filepath.Join(stateDir, rel)
+		info, err := os.Stat(p)
+		if err != nil {
+			t.Fatalf("state dir %q not created: %v", p, err)
+		}
+		if info.Mode().Perm() != 0o700 {
+			t.Fatalf("state dir %q mode = %v, want 0700", p, info.Mode().Perm())
+		}
+	}
+}
+
+func TestPrepareStateDirsErrorIsReported(t *testing.T) {
+	// A file where a directory is expected must surface as an error, not a
+	// silent skip: the agent's HOME would otherwise be unwritable.
+	file := filepath.Join(t.TempDir(), "not-a-dir")
+	if err := os.WriteFile(file, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := prepareStateDirs(file, []string{"/home/agent"}); err == nil {
+		t.Fatal("expected an error when the state path exists as a file")
+	}
+}
+
+func TestWriteSeedsMirrorsRelativePaths(t *testing.T) {
+	dir := t.TempDir()
+	seeds := []policy.SeededFile{
+		{Rel: "settings.json", Data: []byte("a")},
+		{Rel: "nested/models.json", Data: []byte("b")},
+	}
+	if err := writeSeeds(dir, seeds); err != nil {
+		t.Fatalf("writeSeeds: %v", err)
+	}
+	for _, s := range seeds {
+		p := filepath.Join(dir, filepath.FromSlash(s.Rel))
+		got, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatalf("seed %q not written: %v", s.Rel, err)
+		}
+		if string(got) != string(s.Data) {
+			t.Fatalf("seed %q = %q, want %q", s.Rel, got, s.Data)
+		}
+		info, _ := os.Stat(p)
+		if info.Mode().Perm() != 0o600 {
+			t.Fatalf("seed %q mode = %v, want 0600", s.Rel, info.Mode().Perm())
+		}
+	}
+}
+
+func TestWriteSeedsErrorIsReported(t *testing.T) {
+	dir := t.TempDir()
+	// A file where a directory is expected must surface as an error.
+	file := filepath.Join(dir, "blocker")
+	if err := os.WriteFile(file, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeSeeds(dir, []policy.SeededFile{{Rel: "blocker/child.json", Data: []byte("y")}}); err == nil {
+		t.Fatal("expected an error when a seed's parent path is a file")
+	}
+}
+
+func TestShellQuote(t *testing.T) {
+	cases := []struct {
+		in   []string
+		want string
+	}{
+		{[]string{"run", "--rm"}, "run --rm"},
+		{[]string{"--env", "A=b c"}, "--env 'A=b c'"},
+		{[]string{"it's"}, `'it'\''s'`},
+		{[]string{""}, "''"},
+		{[]string{"a$b", "x`y`", "p|q", "r&s", "semi;colon"}, "'a$b' 'x`y`' 'p|q' 'r&s' 'semi;colon'"},
+	}
+	for _, tc := range cases {
+		if got := shellQuote(tc.in); got != tc.want {
+			t.Fatalf("shellQuote(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}

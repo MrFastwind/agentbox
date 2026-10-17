@@ -29,6 +29,7 @@ var forbiddenFlags = []string{
 // forbiddenValues are flag=value pairs that must never be emitted.
 var forbiddenValues = []string{
 	"--security-opt=seccomp=unconfined",
+	"seccomp=unconfined",
 	"--security-opt=apparmor=unconfined",
 	"--security-opt=label=disable",
 	"--read-only=false",
@@ -71,6 +72,12 @@ func Assert(spec *policy.ResolvedSpec, args []string) error {
 	}
 	if !contains(args, "--read-only") {
 		return fmt.Errorf("argv must always make the root filesystem read-only")
+	}
+	if !contains(args, "--ulimit") || !contains(args, "core=0") {
+		return fmt.Errorf("argv must always disable core dumps (--ulimit core=0)")
+	}
+	if !hasSeccompProfile(args) {
+		return fmt.Errorf("argv must always install a seccomp profile (--security-opt seccomp=<path>)")
 	}
 
 	// Every write target must be one this program understands.
@@ -129,6 +136,18 @@ func isLoosenedMode(arg string) bool {
 func contains(args []string, want string) bool {
 	for _, a := range args {
 		if a == want {
+			return true
+		}
+	}
+	return false
+}
+
+// hasSeccompProfile reports whether args carry a non-empty seccomp profile. The
+// forbidden-values pass already rejects "seccomp=unconfined"; this requires the
+// option to be present at all, so a run can never happen without one.
+func hasSeccompProfile(args []string) bool {
+	for _, a := range args {
+		if strings.HasPrefix(a, "seccomp=") && len(a) > len("seccomp=") {
 			return true
 		}
 	}

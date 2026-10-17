@@ -12,6 +12,13 @@ type Request struct {
 	// WorkdirOverride replaces LaunchDir when set (--workdir).
 	WorkdirOverride string
 
+	// WorkspaceOverride mounts this subdirectory as the workspace instead of the
+	// launch directory. A relative path is resolved against the launch
+	// directory and it is validated exactly like a launch directory.
+	WorkspaceOverride string
+	// ReadOnlyWorkspace mounts the workspace read-only.
+	ReadOnlyWorkspace bool
+
 	// ExtraMounts are raw "SRC:DST[:ro|rw]" strings from --mount.
 	ExtraMounts []string
 

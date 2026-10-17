@@ -23,6 +23,13 @@ agent: opencode
 # Launch directory. Defaults to the current directory.
 # workdir: .
 
+# Mount a subdirectory as the workspace instead of the launch directory.
+# workspace: .
+
+# Mount the workspace read-only. The blast radius becomes the agent's own
+# state, not the project tree.
+# read_only_workspace: true
+
 # Network mode. Defaults to pasta (outbound only: no LAN, no tailnet, no
 # host loopback). "none" is stricter and prevents the agent reaching its model
 # provider at all. "host" is discouraged.

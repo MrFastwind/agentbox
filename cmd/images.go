@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 
@@ -49,7 +48,7 @@ func buildTargets(targets []string) error {
 		argv = append(argv, dir)
 
 		fmt.Fprintf(os.Stderr, "agentbox: building %s\n", tag)
-		cmd := exec.Command("podman", argv...)
+		cmd := execCommand("podman", argv...)
 		cmd.Stdout = os.Stderr
 		cmd.Stderr = os.Stderr
 		cmd.Stdin = os.Stdin

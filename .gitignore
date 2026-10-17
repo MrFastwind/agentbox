@@ -1,6 +1,5 @@
 # Compiled binaries
 /agentbox
-/container-agent
 
 # Test coverage artifacts
 /coverage.out

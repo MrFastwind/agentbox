@@ -11,20 +11,41 @@ FROM ${BASE}
 ARG NODE_VERSION=22.20.0
 ARG PI_VERSION=0.87.1
 
+# The tarball is verified against a digest pinned here, not merely fetched over
+# TLS from the same host that serves it. Without this, a compromise of the
+# download (or of nodejs.org) yields an image that silently runs attacker code,
+# and the image is built once and then trusted for a long time. Bumping
+# NODE_VERSION therefore also requires bumping the matching digest: from
+# https://nodejs.org/dist/v<version>/SHASUMS256.txt.
+ARG NODE_SHA256_X64=00bbd05e306ea68b6e13e17360d0e2f680b493ef95f2fea1c4296ff7437530bc
+ARG NODE_SHA256_ARM64=06907b9c088ce62305bc1530e5c1ae1510245114645768f7750c349c5b6fe667
+
 RUN ARCH="$(dpkg --print-architecture)" \
  && case "$ARCH" in \
-      amd64) NODE_ARCH=x64 ;; \
-      arm64) NODE_ARCH=arm64 ;; \
+      amd64) NODE_ARCH=x64;   NODE_SHA256="$NODE_SHA256_X64" ;; \
+      arm64) NODE_ARCH=arm64; NODE_SHA256="$NODE_SHA256_ARM64" ;; \
       *) echo "unsupported architecture: $ARCH" >&2; exit 1 ;; \
     esac \
  && curl -fsSLO "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.xz" \
+ && echo "${NODE_SHA256}  node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.xz" | sha256sum -c - \
  && tar -xJf "node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.xz" \
       -C /usr/local --strip-components=1 --no-same-owner \
  && rm "node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.xz" \
  && node --version \
  && npm --version
 
-RUN npm install --global --omit=dev "@earendil-works/pi-coding-agent@${PI_VERSION}" \
+# The agent package itself comes from a tarball verified against a digest pinned
+# here. npm also checks the registry's signed integrity metadata, but pinning the
+# digest in the repository means a registry compromise that swaps the tarball and
+# rewrites its metadata is still caught. Transitive dependencies are still
+# resolved from the registry and are not pinned here.
+ARG PI_SHA512_HEX=9bc02b254b557103127b594b13f122eef5ff255ecedfdb1699606c5d5d8d394ef4174a82a7c1ae6c0db8a53dcb9f04e633a2cbdb157cd3f87ab1083ce67ebd7b
+
+RUN curl -fsSL -o /tmp/pi.tgz \
+      "https://registry.npmjs.org/@earendil-works/pi-coding-agent/-/pi-coding-agent-${PI_VERSION}.tgz" \
+ && echo "${PI_SHA512_HEX}  /tmp/pi.tgz" | sha512sum -c - \
+ && npm install --global --omit=dev /tmp/pi.tgz \
+ && rm -f /tmp/pi.tgz \
  && npm cache clean --force
 
 # Fail the build rather than shipping an agent that cannot resolve its runtime.

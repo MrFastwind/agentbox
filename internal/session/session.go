@@ -37,6 +37,11 @@ type Options struct {
 	PrintArgv bool
 }
 
+// runPodman is podman.Run, indirected so the boot path can be tested end to end
+// without a container runtime: a test substitutes a function that captures the
+// resolved spec and rendered argv.
+var runPodman = podman.Run
+
 // Boot resolves the request and runs the sandbox, returning the inner exit code.
 func (o Options) Boot(def agent.Definition, req policy.Request) (int, error) {
 	spec, err := o.Resolver.Resolve(def, req)
@@ -75,6 +80,17 @@ func (o Options) Boot(def agent.Definition, req policy.Request) (int, error) {
 		Origin: "state",
 	})
 
+	// Re-validate the mounts that were decided from host paths. Resolution
+	// already resolved symlinks and applied the deny-list, but the filesystem
+	// can change between that decision and the moment podman opens the path.
+	// The state and seed mounts appended above are program-owned and are
+	// skipped by Revalidate.
+	if o.Resolver != nil {
+		if err := o.Resolver.Revalidate(spec); err != nil {
+			return 1, err
+		}
+	}
+
 	// Allow-listed seed files, staged read-only for the entrypoint to copy into
 	// the writable config directory.
 	if len(spec.Seed) > 0 {
@@ -100,10 +116,24 @@ func (o Options) Boot(def agent.Definition, req policy.Request) (int, error) {
 		name = "agentbox-" + shortID()
 	}
 
+	// The seccomp profile podman installs, denying the syscalls that create
+	// nested user namespaces. It is written to its own 0700 directory and read
+	// from there; it is never mounted into the container.
+	seccompDir, err := ephemeralDir("agentbox-seccomp-")
+	if err != nil {
+		return 1, fmt.Errorf("creating seccomp staging directory: %w", err)
+	}
+	cleanups = append(cleanups, func() { os.RemoveAll(seccompDir) })
+	seccompPath := filepath.Join(seccompDir, podman.SeccompProfileName)
+	if err := os.WriteFile(seccompPath, podman.SeccompProfile(), 0o600); err != nil {
+		return 1, fmt.Errorf("staging seccomp profile: %w", err)
+	}
+
 	args := podman.Argv(spec, podman.Options{
-		Name:        name,
-		Interactive: true,
-		TTY:         o.TTY,
+		Name:           name,
+		Interactive:    true,
+		TTY:            o.TTY,
+		SeccompProfile: seccompPath,
 	})
 	if err := podman.Assert(spec, args); err != nil {
 		return 1, err
@@ -120,7 +150,7 @@ func (o Options) Boot(def agent.Definition, req policy.Request) (int, error) {
 		return 0, nil
 	}
 
-	return podman.Run(spec, args, o.Stdin, o.Stdout, o.Stderr)
+	return runPodman(spec, args, o.Stdin, o.Stdout, o.Stderr)
 }
 
 // prepareStateDirs creates the writable state directories on the host side of

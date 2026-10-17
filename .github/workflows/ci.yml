@@ -1,0 +1,32 @@
+# The build gate promised by PLAN.md: vet, race tests, and the per-package
+# coverage floors. The Containerfile lint checks run as part of `go test ./...`
+# (see image/containerfile_test.go), so a regression in a supply-chain pin fails
+# this workflow the same way a failing test does.
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: vet
+        run: make vet
+
+      - name: test (race)
+        run: make test-race
+
+      - name: coverage gate
+        run: make cover-check
