@@ -8,7 +8,7 @@ import (
 )
 
 // version is the build version.
-var version = "0.1.0-dev"
+var version = "0.1.0"
 
 // Main dispatches the command line and returns the process exit code.
 func Main(argv []string) int {

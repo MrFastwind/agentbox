@@ -1,4 +1,4 @@
-# AGENT.md
+# AGENTS.md
 
 Guidance for agents working in this repository. Read this before changing code.
 

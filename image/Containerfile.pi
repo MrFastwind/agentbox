@@ -8,8 +8,8 @@ FROM ${BASE}
 
 # Pinned. The image's Node must satisfy the pinned pi version's engines field;
 # drifting either one independently is a real failure mode.
-ARG NODE_VERSION=22.20.0
-ARG PI_VERSION=0.87.1
+ARG NODE_VERSION=26.13.1
+ARG PI_VERSION=1.5.2
 
 # The tarball is verified against a digest pinned here, not merely fetched over
 # TLS from the same host that serves it. Without this, a compromise of the
@@ -17,8 +17,8 @@ ARG PI_VERSION=0.87.1
 # and the image is built once and then trusted for a long time. Bumping
 # NODE_VERSION therefore also requires bumping the matching digest: from
 # https://nodejs.org/dist/v<version>/SHASUMS256.txt.
-ARG NODE_SHA256_X64=00bbd05e306ea68b6e13e17360d0e2f680b493ef95f2fea1c4296ff7437530bc
-ARG NODE_SHA256_ARM64=06907b9c088ce62305bc1530e5c1ae1510245114645768f7750c349c5b6fe667
+ARG NODE_SHA256_X64=5c063e46bab0fbc1c17cc445d7ff129cbdcd0471be6ed83b6ab864f8143bc864
+ARG NODE_SHA256_ARM64=89e1853138db51e8b82d3e98ba9c0d3f2956a28e5e55ea1b7e12d25aae92d5dd
 
 RUN ARCH="$(dpkg --print-architecture)" \
  && case "$ARCH" in \
@@ -39,7 +39,7 @@ RUN ARCH="$(dpkg --print-architecture)" \
 # digest in the repository means a registry compromise that swaps the tarball and
 # rewrites its metadata is still caught. Transitive dependencies are still
 # resolved from the registry and are not pinned here.
-ARG PI_SHA512_HEX=9bc02b254b557103127b594b13f122eef5ff255ecedfdb1699606c5d5d8d394ef4174a82a7c1ae6c0db8a53dcb9f04e633a2cbdb157cd3f87ab1083ce67ebd7b
+ARG PI_SHA512_HEX=994588d38aea17555dfe6d6af8fb355de5ac4d7115bd1527b2645af372370f3b9ad13c796d84bdde299eaad21fad77fb3e491a47a111cfe02e4212099689b9c8
 
 RUN curl -fsSL -o /tmp/pi.tgz \
       "https://registry.npmjs.org/@earendil-works/pi-coding-agent/-/pi-coding-agent-${PI_VERSION}.tgz" \

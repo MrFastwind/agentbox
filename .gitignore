@@ -7,3 +7,9 @@
 
 # Agent working notes
 .opencode/
+
+# Release artifacts
+/dist/
+
+# OS noise
+.DS_Store

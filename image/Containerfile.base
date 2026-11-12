@@ -3,7 +3,12 @@
 # Debian, not Alpine: the agents are glibc-linked, and a musl image will not run
 # them. The toolchain layer is shared so that the per-agent images differ only in
 # what the agent itself needs.
-FROM docker.io/library/debian:stable-slim
+#
+# The tag is pinned by digest as well as name: "stable-slim" moves, and an image
+# that is built once and trusted for a long time should not change underneath a
+# rebuild. Bump both together from
+# https://hub.docker.com/_/debian (the digest is the multi-arch index).
+FROM docker.io/library/debian:stable-slim@sha256:fbfb4059d2127120aa05b6e6064523d2102552f0cf0026ddf0701c12f1f8f3e0
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV LANG=C.UTF-8

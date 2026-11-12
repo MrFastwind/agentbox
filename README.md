@@ -156,3 +156,7 @@ internal/fsx    filesystem seam for policy tests
 internal/config explicit YAML loading (strict, unknown keys rejected)
 image/          Containerfiles + entrypoint
 ```
+
+## License
+
+MIT. See [LICENSE](LICENSE).
