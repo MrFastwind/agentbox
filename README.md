@@ -104,7 +104,8 @@ agentbox doctor                      report what a run would use
 agentbox version
 ```
 
-Flags: `--agent`, `--workdir`, `--image`, `--no-user-config`, `--env NAME`
+Flags: `--agent`, `--workdir`, `--image`, `--hostname` (default
+`agentbox-<agent>`), `--no-user-config`, `--env NAME`
 (repeatable, allow-listed), `--mount SRC:DST[:ro|rw]` (deny-listed, ro default),
 `--workspace DIR` (mount a subdirectory instead of the launch dir),
 `--read-only-workspace` (mount the workspace `:ro`),

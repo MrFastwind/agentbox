@@ -26,6 +26,7 @@ func runRoot(inv cli.Invocation) int {
 		agentName    = fs.String("agent", "", "agent to launch (opencode, pi, shell)")
 		workdir      = fs.String("workdir", "", "override the launch directory")
 		image        = fs.String("image", "", "override the sandbox image (fully-qualified name required)")
+		hostname     = fs.String("hostname", "", "container hostname (default agentbox-<agent>)")
 		noUserConfig = fs.Bool("no-user-config", false, "read, mount and seed no host agent configuration")
 		network      = fs.String("network", "", "network mode: pasta (default), none, private, host")
 		memory       = fs.String("memory", "", "memory limit (default 4g)")
@@ -91,6 +92,7 @@ func runRoot(inv cli.Invocation) int {
 	selectedImage := pick(set["image"], *image, cfgStr(func(c *config.File) string { return c.Image }), "")
 	selectedWorkdir := pick(set["workdir"], *workdir, cfgStr(func(c *config.File) string { return c.Workdir }), "")
 	selectedWorkspace := pick(set["workspace"], *workspace, cfgStr(func(c *config.File) string { return c.Workspace }), "")
+	selectedHostname := pick(set["hostname"], *hostname, cfgStr(func(c *config.File) string { return c.Hostname }), "")
 	readOnlyWorkspace := *roWorkspace
 	if !set["read-only-workspace"] && cfg != nil {
 		readOnlyWorkspace = cfg.ReadOnlyWorkspace
@@ -155,6 +157,7 @@ func runRoot(inv cli.Invocation) int {
 		PidsLimit:         selectedPids,
 		Command:           command,
 		Image:             selectedImage,
+		Hostname:          selectedHostname,
 	}
 
 	// Auto-build default images if missing.

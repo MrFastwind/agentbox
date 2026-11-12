@@ -20,6 +20,7 @@ func TestLoadFullFile(t *testing.T) {
 	p := write(t, "cfg.yaml", `
 agent: pi
 image: docker.io/library/debian:stable-slim
+hostname: agentbox-pi
 workdir: /workspace
 network: none
 memory: 8g
@@ -43,6 +44,9 @@ user_config: true
 	}
 	if f.Agent != "pi" || f.Image != "docker.io/library/debian:stable-slim" || f.Workdir != "/workspace" {
 		t.Fatalf("scalar fields not decoded: %+v", f)
+	}
+	if f.Hostname != "agentbox-pi" {
+		t.Fatalf("hostname not decoded: %q", f.Hostname)
 	}
 	if f.Network != "none" || f.Memory != "8g" || f.CPUs != "1.5" || f.PidsLimit != 4096 {
 		t.Fatalf("resource fields not decoded: %+v", f)

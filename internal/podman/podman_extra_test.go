@@ -15,7 +15,8 @@ const testSeccomp = "/run/agentbox/seccomp.json"
 // invariants, so a test can isolate whatever it is actually probing.
 func hardening() []string {
 	return []string{
-		"run", "--rm", "--http-proxy=false", "--unsetenv-all",
+		"run", "--rm", "--hostname", "agentbox-opencode",
+		"--http-proxy=false", "--unsetenv-all",
 		"--cap-drop", "ALL", "--read-only", "--ulimit", "core=0",
 		"--security-opt", "seccomp=" + testSeccomp,
 	}
@@ -78,6 +79,7 @@ func TestAssertRequiresAlwaysOnFlags(t *testing.T) {
 		{"http-proxy=false", "--http-proxy=false"},
 		{"ulimit", "--ulimit"},
 		{"seccomp", "seccomp=" + testSeccomp},
+		{"hostname", "--hostname"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

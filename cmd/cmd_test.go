@@ -315,6 +315,54 @@ func TestRunRootWorkspaceFlags(t *testing.T) {
 	}
 }
 
+func TestRunRootHostname(t *testing.T) {
+	var gotReq policy.Request
+	stubRun(t, func(_ session.Options, _ agent.Definition, req policy.Request) (int, error) {
+		gotReq = req
+		return 0, nil
+	})
+	code, _, errb := capture(t, func() int {
+		return runRoot(cli.Invocation{Args: []string{"--agent", "shell", "--hostname", "build-01"}})
+	})
+	if code != 0 {
+		t.Fatalf("exit = %d (stderr=%s)", code, errb)
+	}
+	if gotReq.Hostname != "build-01" {
+		t.Fatalf("--hostname not wired: %+v", gotReq)
+	}
+}
+
+func TestRunRootHostnameConfigAndPrecedence(t *testing.T) {
+	var gotReq policy.Request
+	stubRun(t, func(_ session.Options, _ agent.Definition, req policy.Request) (int, error) {
+		gotReq = req
+		return 0, nil
+	})
+	cfg := filepath.Join(t.TempDir(), "agentbox.yaml")
+	if err := os.WriteFile(cfg, []byte("agent: shell\nhostname: from-config\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code, _, errb := capture(t, func() int {
+		return runRoot(cli.Invocation{Args: []string{"--config", cfg}})
+	})
+	if code != 0 {
+		t.Fatalf("exit = %d (stderr=%s)", code, errb)
+	}
+	if gotReq.Hostname != "from-config" {
+		t.Fatalf("hostname from config not merged: %+v", gotReq)
+	}
+
+	code, _, errb = capture(t, func() int {
+		return runRoot(cli.Invocation{Args: []string{"--config", cfg, "--hostname", "from-flag"}})
+	})
+	if code != 0 {
+		t.Fatalf("exit = %d (stderr=%s)", code, errb)
+	}
+	if gotReq.Hostname != "from-flag" {
+		t.Fatalf("--hostname must override the config value: %+v", gotReq)
+	}
+}
+
 // An explicit "--" invocation passes the whole remainder through unparsed.
 func TestRunRootExplicitCommand(t *testing.T) {
 	var gotReq policy.Request

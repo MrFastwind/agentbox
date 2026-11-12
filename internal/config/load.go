@@ -22,6 +22,7 @@ import (
 type File struct {
 	Agent     string   `yaml:"agent"`
 	Image     string   `yaml:"image"`
+	Hostname  string   `yaml:"hostname"`
 	Workdir   string   `yaml:"workdir"`
 	Network   string   `yaml:"network"`
 	Memory    string   `yaml:"memory"`

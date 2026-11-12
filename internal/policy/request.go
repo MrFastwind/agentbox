@@ -37,4 +37,7 @@ type Request struct {
 	Command []string
 	// Image overrides the agent image.
 	Image string
+	// Hostname overrides the container hostname (--hostname). Empty means the
+	// default derived from the agent name.
+	Hostname string
 }

@@ -68,6 +68,7 @@ func sampleSpec() *policy.ResolvedSpec {
 	return &policy.ResolvedSpec{
 		Agent:      "pi",
 		Image:      "localhost/agentbox/pi:latest",
+		Hostname:   "agentbox-pi",
 		UserConfig: true,
 		Network:    policy.NetworkDecision{Mode: "pasta", Warning: "pasta note"},
 		Userns:     "keep-id",
@@ -137,8 +138,8 @@ func TestRecordRedactsSecretsAndKeepsNames(t *testing.T) {
 	}
 
 	// Structural facts are carried through.
-	if rec.Agent != "pi" || rec.Network != "pasta" || rec.NetworkNote != "pasta note" {
-		t.Fatalf("agent/network not recorded: %+v", rec)
+	if rec.Agent != "pi" || rec.Hostname != "agentbox-pi" || rec.Network != "pasta" || rec.NetworkNote != "pasta note" {
+		t.Fatalf("agent/hostname/network not recorded: %+v", rec)
 	}
 	if len(rec.Mounts) != 2 {
 		t.Fatalf("want 2 mounts recorded, got %d", len(rec.Mounts))

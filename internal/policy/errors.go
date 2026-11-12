@@ -18,6 +18,7 @@ const (
 	RefusalResource  RefusalKind = "resource"
 	RefusalAgent     RefusalKind = "agent"
 	RefusalImage     RefusalKind = "image"
+	RefusalHostname  RefusalKind = "hostname"
 )
 
 // Refusal is a denied decision. Fatal refusals abort the run; non-fatal ones are

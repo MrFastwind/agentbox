@@ -24,6 +24,12 @@ func Argv(spec *policy.ResolvedSpec, opts Options) []string {
 	}
 	args = append(args, "--rm")
 
+	// The hostname identifies the box inside the container; podman's default
+	// (the short container ID) says nothing about which agent is running.
+	if spec.Hostname != "" {
+		args = append(args, "--hostname", spec.Hostname)
+	}
+
 	if opts.Interactive {
 		args = append(args, "-i")
 	}

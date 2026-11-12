@@ -66,6 +66,11 @@ type ResolvedSpec struct {
 	Workdir    string
 	UserConfig bool
 
+	// Hostname is the container hostname: gethostname(2) and /etc/hostname
+	// inside the sandbox. Always set — the default is derived from the agent
+	// name — so the agent can tell which box it is in.
+	Hostname string
+
 	Mounts  []ResolvedMount
 	Env     []EnvPair
 	Tmpfs   []string

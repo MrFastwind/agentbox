@@ -19,6 +19,7 @@ import (
 type Record struct {
 	Agent       string        `json:"agent"`
 	Image       string        `json:"image"`
+	Hostname    string        `json:"hostname"`
 	UserConfig  bool          `json:"user_config"`
 	Network     string        `json:"network"`
 	NetworkNote string        `json:"network_note,omitempty"`
@@ -69,6 +70,7 @@ func (l *Logger) Record(spec *policy.ResolvedSpec, argv []string) error {
 	rec := Record{
 		Agent:       spec.Agent,
 		Image:       spec.Image,
+		Hostname:    spec.Hostname,
 		UserConfig:  spec.UserConfig,
 		Network:     spec.Network.Mode,
 		NetworkNote: spec.Network.Warning,

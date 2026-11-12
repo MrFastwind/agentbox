@@ -52,6 +52,9 @@ mounts: []
 # mounts:
 #   - /srv/data:/data:ro
 
+# Container hostname. Defaults to agentbox-<agent>, e.g. agentbox-opencode.
+# hostname: agentbox-opencode
+
 # Run this instead of the agent's default command.
 # command: ["/bin/bash", "-l"]
 

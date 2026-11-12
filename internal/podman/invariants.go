@@ -80,6 +80,36 @@ func Assert(spec *policy.ResolvedSpec, args []string) error {
 		return fmt.Errorf("argv must always install a seccomp profile (--security-opt seccomp=<path>)")
 	}
 
+	// The sandbox must carry an explicit, valid hostname that the spec agreed
+	// to. This check runs after the always-on flags above so that a crafted
+	// argv missing several flags reports the first one it violates.
+	if spec.Hostname == "" {
+		return fmt.Errorf("spec has no hostname; every run must be named agentbox-<agent> or an override")
+	}
+	if err := policy.ValidateHostname(spec.Hostname); err != nil {
+		return fmt.Errorf("spec hostname is invalid: %w", err)
+	}
+	{
+		var found bool
+		for i, a := range args {
+			if a == "--hostname" {
+				if i+1 >= len(args) {
+					return fmt.Errorf("--hostname without a value")
+				}
+				if found {
+					return fmt.Errorf("argv contains --hostname more than once")
+				}
+				found = true
+				if args[i+1] != spec.Hostname {
+					return fmt.Errorf("argv hostname %q disagrees with the spec's %q", args[i+1], spec.Hostname)
+				}
+			}
+		}
+		if !found {
+			return fmt.Errorf("argv must always carry --hostname %s", spec.Hostname)
+		}
+	}
+
 	// Every write target must be one this program understands.
 	userWritable := 0
 	fromSpec := 0

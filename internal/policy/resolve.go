@@ -76,6 +76,7 @@ func (r *Resolver) Resolve(def agent.Definition, req Request) (*ResolvedSpec, er
 		Image:           def.Image,
 		Workdir:         ContainerWorkdir,
 		UserConfig:      def.Strategy != agent.StrategyNone,
+		Hostname:        DefaultHostname(def.Name),
 		Userns:          "keep-id",
 		CapDrop:         true,
 		NoNewPrivileges: true,
@@ -90,6 +91,17 @@ func (r *Resolver) Resolve(def agent.Definition, req Request) (*ResolvedSpec, er
 			refusals = append(refusals, refusal(RefusalImage, req.Image, err.Error()))
 		} else {
 			spec.Image = req.Image
+		}
+	}
+
+	// The hostname is identity, not a capability, but it is still validated
+	// here rather than at run time: a malformed value would otherwise fail
+	// inside podman, after staging has already begun.
+	if req.Hostname != "" {
+		if err := ValidateHostname(req.Hostname); err != nil {
+			refusals = append(refusals, refusal(RefusalHostname, req.Hostname, err.Error()))
+		} else {
+			spec.Hostname = req.Hostname
 		}
 	}
 

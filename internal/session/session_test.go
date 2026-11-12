@@ -216,6 +216,22 @@ func TestBootUsesProvidedName(t *testing.T) {
 	}
 }
 
+// The container hostname follows the agent name, so the box is identifiable
+// from inside without the user passing anything.
+func TestBootSetsHostnameFromAgent(t *testing.T) {
+	var hostname string
+	withRun(t, func(_ *policy.ResolvedSpec, args []string, _ *os.File, _ *os.File, _ *os.File) (int, error) {
+		hostname, _ = argValue(args, "--hostname")
+		return 0, nil
+	})
+	if _, err := options(fakeHost(), nil).Boot(baseDef(), policy.Request{LaunchDir: testProject}); err != nil {
+		t.Fatal(err)
+	}
+	if hostname != "agentbox-ci" {
+		t.Fatalf("hostname = %q, want agentbox-ci", hostname)
+	}
+}
+
 // The audit record is written before podman starts and must never carry a
 // credential value, only the name that identifies it.
 func TestBootRecordsAuditWithoutSecrets(t *testing.T) {

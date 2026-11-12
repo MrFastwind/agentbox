@@ -14,6 +14,7 @@ func validSpec() *policy.ResolvedSpec {
 		Agent:    "opencode",
 		Image:    "localhost/agentbox/opencode:latest",
 		Command:  []string{"opencode"},
+		Hostname: "agentbox-opencode",
 		Userns:   "keep-id",
 		CapDrop:  true,
 		ReadOnly: true,
@@ -28,6 +29,7 @@ func validSpec() *policy.ResolvedSpec {
 func validArgs() []string {
 	return []string{
 		"run", "--rm",
+		"--hostname", "agentbox-opencode",
 		"--http-proxy=false", "--unsetenv-all",
 		"--cap-drop", "ALL", "--read-only", "--ulimit", "core=0",
 		"--security-opt", "seccomp=/run/agentbox/seccomp.json",

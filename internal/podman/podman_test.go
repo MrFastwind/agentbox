@@ -14,6 +14,7 @@ func baseSpec() *policy.ResolvedSpec {
 		Image:           "localhost/agentbox/opencode:latest",
 		Command:         []string{"opencode"},
 		Workdir:         "/workspace",
+		Hostname:        "agentbox-opencode",
 		Userns:          "keep-id",
 		CapDrop:         true,
 		NoNewPrivileges: true,
@@ -36,6 +37,54 @@ func TestArgvSatisfiesInvariants(t *testing.T) {
 	args := podman.Argv(spec, podman.Options{Name: "agentbox-test", Interactive: true, TTY: true, SeccompProfile: testSeccomp})
 	if err := podman.Assert(spec, args); err != nil {
 		t.Fatalf("rendered argv violates invariants: %v\nargv: %v", err, args)
+	}
+}
+
+func TestArgvEmitsHostname(t *testing.T) {
+	spec := baseSpec()
+	args := podman.Argv(spec, podman.Options{Interactive: true, SeccompProfile: testSeccomp})
+	val, ok := flagValue(args, "--hostname")
+	if !ok || val != spec.Hostname {
+		t.Fatalf("expected --hostname %s, got %v", spec.Hostname, args)
+	}
+}
+
+// stripFlag removes a flag and the value that follows it.
+func stripFlag(args []string, flag string) []string {
+	out := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		if args[i] == flag {
+			i++ // skip the value too
+			continue
+		}
+		out = append(out, args[i])
+	}
+	return out
+}
+
+func TestAssertRejectsMissingHostname(t *testing.T) {
+	spec := baseSpec()
+	args := podman.Argv(spec, podman.Options{Interactive: true, SeccompProfile: testSeccomp})
+	if err := podman.Assert(spec, stripFlag(args, "--hostname")); err == nil {
+		t.Fatal("Assert must reject an argv with no --hostname")
+	}
+}
+
+func TestAssertRejectsHostnameDisagreement(t *testing.T) {
+	spec := baseSpec()
+	spec.Hostname = "agentbox-something-else"
+	args := podman.Argv(baseSpec(), podman.Options{Interactive: true, SeccompProfile: testSeccomp})
+	if err := podman.Assert(spec, args); err == nil {
+		t.Fatal("Assert must reject an argv whose hostname disagrees with the spec")
+	}
+}
+
+func TestAssertRejectsInvalidSpecHostname(t *testing.T) {
+	spec := baseSpec()
+	spec.Hostname = "agentbox-../escape"
+	args := podman.Argv(spec, podman.Options{Interactive: true, SeccompProfile: testSeccomp})
+	if err := podman.Assert(spec, args); err == nil {
+		t.Fatal("Assert must reject an invalid hostname")
 	}
 }
 

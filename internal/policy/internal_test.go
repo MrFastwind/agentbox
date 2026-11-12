@@ -348,7 +348,50 @@ func TestSymlinkWithinPrefixesFailsClosedWhenReadlinkFails(t *testing.T) {
 	}
 }
 
-// --- deny-list fallback used by doctor --------------------------------------
+// --- hostname ---------------------------------------------------------------
+
+func TestValidateHostname(t *testing.T) {
+	cases := []struct {
+		name    string
+		in      string
+		wantErr bool
+	}{
+		{name: "default form", in: "agentbox-opencode"},
+		{name: "single character label", in: "a"},
+		{name: "digits allowed", in: "agentbox-123"},
+		{name: "dotted name", in: "agentbox.opencode.local"},
+		{name: "empty", in: "", wantErr: true},
+		{name: "uppercase is allowed by RFC 1123", in: "AgentBox-OpenCode"},
+		{name: "leading hyphen", in: "-agentbox", wantErr: true},
+		{name: "trailing hyphen", in: "agentbox-", wantErr: true},
+		{name: "underscore", in: "agent_box", wantErr: true},
+		{name: "space", in: "agent box", wantErr: true},
+		{name: "slash", in: "agentbox/../etc", wantErr: true},
+		{name: "empty label", in: "agentbox..local", wantErr: true},
+		{name: "label too long", in: strings.Repeat("a", 64), wantErr: true},
+		{name: "name too long", in: strings.Repeat("a", 63) + "." + strings.Repeat("b", 10), wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ValidateHostname(tc.in)
+			if tc.wantErr && err == nil {
+				t.Fatalf("ValidateHostname(%q) = nil, want error", tc.in)
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("ValidateHostname(%q) = %v, want nil", tc.in, err)
+			}
+		})
+	}
+}
+
+func TestDefaultHostname(t *testing.T) {
+	if got := DefaultHostname("pi"); got != "agentbox-pi" {
+		t.Fatalf("DefaultHostname(pi) = %q", got)
+	}
+	if err := ValidateHostname(DefaultHostname("opencode")); err != nil {
+		t.Fatalf("the default hostname must validate: %v", err)
+	}
+}
 
 // doctor resolves no launch directory, so the deny-list it builds must still
 // bound paths when the home directory cannot be resolved.
