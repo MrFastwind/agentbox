@@ -1,0 +1,77 @@
+name: release
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build & Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Verify test suite
+        run: |
+          make vet
+          make test-race
+          make cover-check
+
+      - name: Determine version
+        id: meta
+        run: |
+          RAW_VERSION=$(git describe --tags --exact-match 2>/dev/null || sed -n 's/.*var version = "\(.*\)".*/\1/p' cmd/main.go)
+          if [ -z "$RAW_VERSION" ]; then
+            RAW_VERSION="0.1.0"
+          fi
+          TAG="v${RAW_VERSION#v}"
+          echo "version=${RAW_VERSION#v}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Build release archives
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          mkdir -p dist
+          for arch in amd64 arm64; do
+            pkg_dir="dist/agentbox_${VERSION}_linux_${arch}"
+            mkdir -p "${pkg_dir}/image"
+            CGO_ENABLED=0 GOOS=linux GOARCH="${arch}" go build -trimpath \
+              -ldflags="-s -w -X agentbox/cmd.version=${VERSION}" \
+              -o "${pkg_dir}/agentbox" .
+            cp image/Containerfile.* image/entrypoint.sh "${pkg_dir}/image/"
+            cp README.md LICENSE agentbox.yaml.example "${pkg_dir}/"
+            tar -czvf "dist/agentbox_${VERSION}_linux_${arch}.tar.gz" -C dist "agentbox_${VERSION}_linux_${arch}"
+          done
+          cd dist
+          sha256sum agentbox_*.tar.gz > checksums.txt
+
+      - name: Publish GitHub release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; updating artifacts..."
+            gh release upload "$TAG" dist/agentbox_*.tar.gz dist/checksums.txt --clobber
+          else
+            echo "Creating release $TAG..."
+            gh release create "$TAG" \
+              dist/agentbox_*.tar.gz \
+              dist/checksums.txt \
+              --title "agentbox $TAG" \
+              --generate-notes
+          fi
