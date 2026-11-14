@@ -1,4 +1,4 @@
-# opencode sandbox: base + the opencode binary.
+# opencode sandbox: slim base + the opencode binary.
 #
 # Deliberately carries no Node runtime. opencode is a self-contained native
 # binary, and bundling Node for pi's sake would make every opencode user pay for
@@ -7,18 +7,19 @@ ARG BASE=localhost/agentbox/base:latest
 FROM ${BASE}
 
 # Pin this. An unpinned agent install means the sandbox image changes underneath
-# the user, and the reviewed version is not the running version.
-ARG OPENCODE_VERSION=latest
+# the user, and the reviewed version is not the running version. The upstream
+# installer supports --version; verify the flag when bumping.
+ARG OPENCODE_VERSION=1.19.5
 
-# The upstream installer places the binary under $HOME/.opencode/bin. Verify the
-# installer's flags against the pinned version when bumping, and prefer a pinned
-# release artifact over "latest" once a version is chosen.
-RUN curl -fsSL https://opencode.ai/install | bash \
+# The installer places the binary under $HOME/.opencode/bin. It is handed the
+# pinned version explicitly rather than following its default "latest".
+RUN curl -fsSL https://opencode.ai/install | bash -s -- --version "${OPENCODE_VERSION}" \
  && cp -a /root/.opencode/bin/. /usr/local/bin/ \
  && rm -rf /root/.opencode
 
-# Fail the build rather than shipping an image whose agent cannot start.
-RUN opencode --version
+# Fail the build rather than shipping an image whose agent cannot start, or one
+# whose version drifted from the pin.
+RUN opencode --version | grep -F "${OPENCODE_VERSION}"
 
 ENTRYPOINT ["/usr/local/bin/agentbox-entrypoint"]
 CMD ["opencode"]

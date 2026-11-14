@@ -15,7 +15,15 @@ import (
 // execCommand is exec.Command, used by the podman-invoking paths.
 var execCommand = exec.Command
 
+// ensureImage builds default images if missing.
+var ensureImage = ensureImageAvailable
+
 // runSession boots a resolved request. The default is session.Options.Boot.
 var runSession = func(o session.Options, def agent.Definition, req policy.Request) (int, error) {
+	if !o.PrintArgv {
+		if err := ensureImage(req.Image, def, req.NoUserConfig); err != nil {
+			return 1, err
+		}
+	}
 	return o.Boot(def, req)
 }

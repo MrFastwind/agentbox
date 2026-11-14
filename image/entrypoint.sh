@@ -44,15 +44,16 @@ for d in \
 	"${XDG_STATE_HOME:-$HOME/.local/state}" \
 	"${XDG_CACHE_HOME:-$HOME/.cache}" \
 	"${PI_CODING_AGENT_DIR:-}" \
-	"${PI_CODING_AGENT_SESSION_DIR:-}"
+	"${PI_CODING_AGENT_SESSION_DIR:-}" \
+	"${AGENTBOX_SEED_DIR:-}"
 do
 	ensure_dir "$d"
 done
 
 SEEDS=/run/agentbox/seeds
-if [ -d "$SEEDS" ] && [ -n "${PI_CODING_AGENT_DIR:-}" ]; then
-	ensure_dir "$PI_CODING_AGENT_DIR"
-	cp -a "$SEEDS"/. "$PI_CODING_AGENT_DIR"/ 2>/dev/null || true
+if [ -d "$SEEDS" ] && [ -n "${AGENTBOX_SEED_DIR:-}" ]; then
+	ensure_dir "$AGENTBOX_SEED_DIR"
+	cp -a "$SEEDS"/. "$AGENTBOX_SEED_DIR"/ 2>/dev/null || true
 fi
 
 exec "$@"

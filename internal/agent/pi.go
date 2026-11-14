@@ -34,6 +34,7 @@ func piDef(home string) Definition {
 	base := baseEnv()
 	base["PI_CODING_AGENT_DIR"] = agentDirInContainer
 	base["PI_CODING_AGENT_SESSION_DIR"] = sessionsInContainer
+	base[SeedDirEnv] = agentDirInContainer
 	return Definition{
 		Name:                 "pi",
 		Image:                DefaultImage("pi"),

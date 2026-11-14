@@ -4,11 +4,11 @@ Guidance for agents working in this repository. Read this before changing code.
 
 ## What this project is
 
-`agentbox` runs a coding agent (`opencode`, `pi`) inside a deliberately small,
-read-only, rootless-podman sandbox. The security properties are the product:
-non-root, all capabilities dropped, no ambient environment, credential-tight
-config handling, ephemeral writable state, and a workspace that is the only
-durable writable surface.
+`agentbox` runs a coding agent (`opencode`, `pi`, `claude`, `antigravity`)
+inside a deliberately small, read-only, rootless-podman sandbox. The security
+properties are the product: non-root, all capabilities dropped, no ambient
+environment, credential-tight config handling, ephemeral writable state, and a
+workspace that is the only durable writable surface.
 
 Module: `agentbox` (Go 1.27). Binary: `agentbox`. The only runtime dependency is
 `gopkg.in/yaml.v3`; prefer the standard library.
@@ -101,6 +101,9 @@ the build when a sandbox guarantee is edited away.
 1. Add a data-only `Definition` under `internal/agent/` (config strategy, seed
    allow-list, declared env names, fully-qualified image) and register it.
 2. Add `image/Containerfile.<agent>` and wire it into `agentbox images build`.
+   Pin the agent version and verify a release artifact against a digest recorded
+   in the Containerfile; the installer's "latest" is not a pin. Keep the base
+   image slim and add only the runtime that agent needs.
 3. Add image tests for any pin or supply-chain guarantee.
 4. Update `README.md` (behaviour and the security notes) and this file if the
    architecture changes.

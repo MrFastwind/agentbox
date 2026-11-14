@@ -7,10 +7,10 @@ import (
 	"strings"
 )
 
-// defaultCredentialKeys is matched case-insensitively against JSON *key names*,
-// never substrings. It is deliberately a deny-by-default assertion applied to
-// allow-listed seed files: the point is not to be exhaustive but to fail closed
-// on anything credential-shaped that a registry entry forgot about.
+// defaultCredentialKeys is matched case-insensitively against JSON *key names*.
+// It is deliberately a deny-by-default assertion applied to allow-listed seed
+// files: the point is not to be exhaustive but to fail closed on anything
+// credential-shaped that a registry entry forgot about.
 //
 // Bare "access" and "refresh" are deliberately absent: they appear in pi's
 // oauth.json but are too generic to match safely against legitimate settings.
@@ -43,6 +43,33 @@ var defaultCredentialKeys = map[string]bool{
 	"bearer":        true,
 }
 
+// Credential-shaped names are frequently namespaced by their provider:
+// ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN, AWS_SECRET_ACCESS_KEY. Exact
+// matching alone would seed those values verbatim, so a separator-normalised
+// suffix check backs up the exact list. The suffixes are deliberately specific:
+// a bare "token" or "key" suffix would strip ordinary settings such as
+// maxTokens or keyboardShortcut.
+var credentialKeySuffixes = []string{
+	"apikey", "apikeys", "apisecret", "clientsecret", "privatekey",
+	"accesstoken", "refreshtoken", "sessiontoken", "authtoken",
+	"accesskey", "password", "passwd", "credential", "credentials",
+	"secret", "secrets",
+}
+
+func credentialKey(key string) bool {
+	lower := strings.ToLower(key)
+	if defaultCredentialKeys[lower] {
+		return true
+	}
+	normalised := strings.NewReplacer("_", "", "-", "", ".", "").Replace(lower)
+	for _, suffix := range credentialKeySuffixes {
+		if strings.HasSuffix(normalised, suffix) {
+			return true
+		}
+	}
+	return false
+}
+
 // CredentialKeyPaths returns the dotted paths of keys inside raw that look like
 // credential material. A JSON syntax error is reported separately so the caller
 // can distinguish "clean" from "unassayable".
@@ -57,7 +84,7 @@ func CredentialKeyPaths(raw []byte) ([]string, error) {
 	}
 	var found []string
 	walkJSON(v, "", func(path, key string) bool {
-		if defaultCredentialKeys[strings.ToLower(key)] {
+		if credentialKey(key) {
 			found = append(found, path)
 		}
 		return false
@@ -75,7 +102,7 @@ func StripCredentialKeysFromJSON(raw []byte) ([]byte, []string, error) {
 	}
 	var removed []string
 	walkJSON(v, "", func(path, key string) bool {
-		if defaultCredentialKeys[strings.ToLower(key)] {
+		if credentialKey(key) {
 			removed = append(removed, path)
 			return true // delete
 		}

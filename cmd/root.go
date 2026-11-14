@@ -4,7 +4,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"os/exec"
 	"sort"
 	"strings"
 
@@ -23,7 +22,7 @@ func runRoot(inv cli.Invocation) int {
 	fs.Usage = func() { usage(fs) }
 
 	var (
-		agentName    = fs.String("agent", "", "agent to launch (opencode, pi, shell)")
+		agentName    = fs.String("agent", "", "agent to launch (opencode, pi, claude, antigravity, shell)")
 		workdir      = fs.String("workdir", "", "override the launch directory")
 		image        = fs.String("image", "", "override the sandbox image (fully-qualified name required)")
 		hostname     = fs.String("hostname", "", "container hostname (default agentbox-<agent>)")
@@ -160,12 +159,6 @@ func runRoot(inv cli.Invocation) int {
 		Hostname:          selectedHostname,
 	}
 
-	// Auto-build default images if missing.
-	if err := ensureImageAvailable(req.Image, def, noConfig); err != nil {
-		fmt.Fprintf(os.Stderr, "agentbox: %v\n", err)
-		return 1
-	}
-
 	resolver := policy.NewResolver(fsx.Real{}, os.LookupEnv)
 	resolver.Strict = *strictConfig
 
@@ -256,7 +249,7 @@ func ensureImageAvailable(reqImage string, def agent.Definition, noUserConfig bo
 }
 
 func imageExists(ref string) bool {
-	cmd := exec.Command("podman", "image", "exists", ref)
+	cmd := execCommand("podman", "image", "exists", ref)
 	return cmd.Run() == nil
 }
 

@@ -11,7 +11,7 @@
 # "network: host" asks for host networking; the policy engine still applies and
 # the choice is recorded in the audit log.
 
-# Agent to launch: opencode, pi, or shell.
+# Agent to launch: opencode, pi, claude, antigravity, or shell.
 agent: opencode
 
 # Override the sandbox image. Must be fully qualified (name the registry):

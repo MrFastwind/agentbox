@@ -61,6 +61,40 @@ func piHost() *fsx.Fake {
 	return f
 }
 
+func claudeHost() *fsx.Fake {
+	f := fsx.NewFake(testHome, testHome+"/project")
+	f.Mkdir(testHome + "/project")
+	f.Mkdir(testHome + "/.claude")
+
+	f.Write(testHome+"/.claude/settings.json", []byte(`{"theme":"dark","env":{"ANTHROPIC_API_KEY":"sk-claude","ANTHROPIC_BASE_URL":"https://example.invalid"}}`))
+	f.Write(testHome+"/.claude/keybindings.json", []byte(`{"bindings":[{"key":"ctrl+k","command":"clear"}]}`))
+	f.Write(testHome+"/.claude/.credentials.json", []byte(`{"accessToken":"live"}`))
+	f.Write(testHome+"/.claude/history.jsonl", []byte(`{"prompt":"secret"}`))
+	f.Mkdir(testHome + "/.claude/projects")
+	f.Write(testHome+"/.claude.json", []byte(`{"account":"live","trust":{}}`))
+
+	return f
+}
+
+func antigravityHost() *fsx.Fake {
+	f := fsx.NewFake(testHome, testHome+"/project")
+	f.Mkdir(testHome + "/project")
+	f.Mkdir(testHome + "/.gemini/antigravity-cli")
+
+	d := testHome + "/.gemini"
+	f.Write(d+"/antigravity-cli/settings.json", []byte(`{"modelProvider":"gemini","theme":"dark","env":{"GEMINI_API_KEY":"gm-live"}}`))
+	f.Write(d+"/antigravity-cli/keybindings.json", []byte(`{"bindings":[]}`))
+	f.Write(d+"/antigravity-cli/antigravity-oauth-token", []byte("live-token"))
+	f.Write(d+"/google_accounts.json", []byte(`{"active":"me@example.com"}`))
+	f.Write(d+"/oauth_creds.json", []byte(`{"access_token":"live"}`))
+	f.Write(d+"/trustedFolders.json", []byte(`["/home/u"]`))
+	f.Write(d+"/installation_id", []byte("id"))
+	f.Write(d+"/state.json", []byte(`{}`))
+	f.Write(d+"/projects.json", []byte(`{}`))
+
+	return f
+}
+
 func resolve(t *testing.T, f *fsx.Fake, agentName string, req policy.Request, env map[string]string) (*policy.ResolvedSpec, error) {
 	t.Helper()
 	reg := agent.New(testHome)
@@ -449,6 +483,96 @@ func TestPiDoesNotMountItsConfigDirectory(t *testing.T) {
 	for _, m := range spec.Mounts {
 		if strings.Contains(m.Host, ".pi/agent") {
 			t.Fatalf("pi's config directory must never be mounted: %+v", m)
+		}
+	}
+}
+
+// --- claude and antigravity seeding -----------------------------------------
+
+func TestClaudeSeedsOnlyAllowListedFiles(t *testing.T) {
+	spec := mustResolve(t, claudeHost(), "claude", policy.Request{LaunchDir: testHome + "/project"})
+
+	got := map[string]bool{}
+	for _, s := range spec.Seed {
+		got[s.Rel] = true
+	}
+	for _, forbidden := range []string{
+		".credentials.json", ".claude.json", "history.jsonl", "projects", "plugins",
+	} {
+		if got[forbidden] {
+			t.Fatalf("%s must never be seeded", forbidden)
+		}
+	}
+	for _, want := range []string{"settings.json", "keybindings.json"} {
+		if !got[want] {
+			t.Fatalf("%s should have been seeded; seeded set is %v", want, got)
+		}
+	}
+
+	var settings *policy.SeededFile
+	for i := range spec.Seed {
+		if spec.Seed[i].Rel == "settings.json" {
+			settings = &spec.Seed[i]
+		}
+	}
+	if settings == nil {
+		t.Fatal("expected claude settings.json to be seeded")
+	}
+	if strings.Contains(string(settings.Data), "sk-claude") {
+		t.Error("provider-prefixed credential leaked into seeded claude settings")
+	}
+	for _, keep := range []string{"dark", "ANTHROPIC_BASE_URL"} {
+		if !strings.Contains(string(settings.Data), keep) {
+			t.Errorf("non-credential setting %q was lost", keep)
+		}
+	}
+	if len(settings.RemovedKeys) == 0 {
+		t.Error("expected removed keys to be recorded for audit")
+	}
+
+	for _, m := range spec.Mounts {
+		if strings.Contains(m.Host, "/.claude") || strings.Contains(m.Host, "/.claude.json") {
+			t.Fatalf("claude's config and credential files must never be mounted: %+v", m)
+		}
+	}
+}
+
+func TestAntigravitySeedsNestedAllowListedFiles(t *testing.T) {
+	spec := mustResolve(t, antigravityHost(), "antigravity", policy.Request{LaunchDir: testHome + "/project"})
+
+	got := map[string]bool{}
+	for _, s := range spec.Seed {
+		got[s.Rel] = true
+	}
+	for _, forbidden := range []string{
+		"antigravity-cli/antigravity-oauth-token",
+		"google_accounts.json",
+		"oauth_creds.json",
+		"trustedFolders.json",
+		"installation_id",
+		"state.json",
+		"projects.json",
+	} {
+		if got[forbidden] {
+			t.Fatalf("%s must never be seeded", forbidden)
+		}
+	}
+	if !got["antigravity-cli/settings.json"] || !got["antigravity-cli/keybindings.json"] {
+		t.Fatalf("expected the nested allow-listed files, got %v", got)
+	}
+
+	for _, s := range spec.Seed {
+		if strings.Contains(string(s.Data), "gm-live") {
+			t.Errorf("%s: provider credential leaked into seeded bytes", s.Rel)
+		}
+		if s.Rel == "antigravity-cli/settings.json" && len(s.RemovedKeys) == 0 {
+			t.Error("expected removed keys to be recorded for audit")
+		}
+	}
+
+	for _, m := range spec.Mounts {
+		if strings.Contains(m.Host, "/.gemini") {
+			t.Fatalf("antigravity's config and credential tree must never be mounted: %+v", m)
 		}
 	}
 }

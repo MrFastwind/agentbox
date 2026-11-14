@@ -1,0 +1,38 @@
+# antigravity sandbox: slim base + the Antigravity CLI ("agy").
+#
+# The vendor installer at https://antigravity.google/cli/install.sh has no
+# version flag and always downloads the latest build, so it cannot be pinned.
+# The GitHub release tarball is used instead, verified against a per-architecture
+# digest.
+ARG BASE=localhost/agentbox/base:latest
+FROM ${BASE}
+
+ARG AGY_VERSION=1.5.9
+
+# Digests for the release assets at
+# https://github.com/google-antigravity/antigravity-cli/releases/tag/<version>
+# Bump the version, both digests, and the smoke test together.
+ARG AGY_SHA256_X64=8b1f5e56779f2434a0af36f1b715a8392a084de550f8c68bc79821f95fabf3fa
+ARG AGY_SHA256_ARM64=3a18c238c7ee6661e43df7e824a7d4c1bed78aeeda09430921a0f1dbfe825bca
+
+RUN ARCH="$(uname -m)" \
+ && case "$ARCH" in \
+      x86_64|amd64) AGY_ARCH=x64;   AGY_SHA256="$AGY_SHA256_X64" ;; \
+      aarch64|arm64) AGY_ARCH=arm64; AGY_SHA256="$AGY_SHA256_ARM64" ;; \
+      *) echo "unsupported architecture: $ARCH" >&2; exit 1 ;; \
+    esac \
+ && curl -fsSL -o /tmp/agy.tar.gz \
+      "https://github.com/google-antigravity/antigravity-cli/releases/download/${AGY_VERSION}/agy_cli_linux_${AGY_ARCH}.tar.gz" \
+ && echo "${AGY_SHA256}  /tmp/agy.tar.gz" | sha256sum -c - \
+ && mkdir -p /tmp/agy \
+ && tar -xzf /tmp/agy.tar.gz -C /tmp/agy \
+ && cp -f /tmp/agy/antigravity /usr/local/bin/agy \
+ && chmod 0755 /usr/local/bin/agy \
+ && rm -rf /tmp/agy /tmp/agy.tar.gz
+
+# Fail the build rather than shipping an image whose agent cannot start, or one
+# whose version drifted from the pin.
+RUN agy --version | grep -F "${AGY_VERSION}"
+
+ENTRYPOINT ["/usr/local/bin/agentbox-entrypoint"]
+CMD ["agy"]

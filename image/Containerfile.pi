@@ -1,10 +1,25 @@
 # pi sandbox: base + Node + the pi coding agent.
 #
 # pi is an npm package (engines.node >= 22.19.0), not a static binary, so this
-# image carries a Node runtime. It is a separate image from opencode's precisely
-# so that Node is not paid for twice.
+# image needs a Node runtime. Node and pi are installed in a Debian builder
+# stage and only the runtime files are copied into the distroless base; npm,
+# the package cache, docs and examples never reach the final image.
 ARG BASE=localhost/agentbox/base:latest
-FROM ${BASE}
+ARG DEBIAN_IMAGE=docker.io/library/debian:stable-slim@sha256:fbfb4059d2127120aa05b6e6064523d2102552f0cf0026ddf0701c12f1f8f3e0
+
+FROM ${DEBIAN_IMAGE} AS build
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Only this stage needs these: the official Node tarball is .tar.xz, and the
+# binary links libatomic.so.1 on Debian. The other agents do not pay for pi's
+# build dependencies or runtime.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ca-certificates \
+      curl \
+      libatomic1 \
+      xz-utils \
+  && rm -rf /var/lib/apt/lists/*
 
 # Pinned. The image's Node must satisfy the pinned pi version's engines field;
 # drifting either one independently is a real failure mode.
@@ -20,10 +35,10 @@ ARG PI_VERSION=1.5.2
 ARG NODE_SHA256_X64=5c063e46bab0fbc1c17cc445d7ff129cbdcd0471be6ed83b6ab864f8143bc864
 ARG NODE_SHA256_ARM64=89e1853138db51e8b82d3e98ba9c0d3f2956a28e5e55ea1b7e12d25aae92d5dd
 
-RUN ARCH="$(dpkg --print-architecture)" \
+RUN ARCH="$(uname -m)" \
  && case "$ARCH" in \
-      amd64) NODE_ARCH=x64;   NODE_SHA256="$NODE_SHA256_X64" ;; \
-      arm64) NODE_ARCH=arm64; NODE_SHA256="$NODE_SHA256_ARM64" ;; \
+      x86_64|amd64) NODE_ARCH=x64;   NODE_SHA256="$NODE_SHA256_X64" ;; \
+      aarch64|arm64) NODE_ARCH=arm64; NODE_SHA256="$NODE_SHA256_ARM64" ;; \
       *) echo "unsupported architecture: $ARCH" >&2; exit 1 ;; \
     esac \
  && curl -fsSLO "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.xz" \
@@ -48,8 +63,27 @@ RUN curl -fsSL -o /tmp/pi.tgz \
  && rm -f /tmp/pi.tgz \
  && npm cache clean --force
 
+# Assemble only the runtime: the node binary, the pi package and its launcher,
+# and the shared libraries node links against. npm itself (~19 MB), docs and
+# examples are deliberately left in the builder stage.
+RUN set -eu; \
+    rm -rf /usr/local/lib/node_modules/@earendil-works/pi-coding-agent/docs \
+           /usr/local/lib/node_modules/@earendil-works/pi-coding-agent/examples; \
+    mkdir -p /out/usr/local/bin /out/usr/local/lib/node_modules; \
+    cp /usr/local/bin/node /out/usr/local/bin/node; \
+    ln -sf ../lib/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js \
+      /out/usr/local/bin/pi; \
+    cp -a /usr/local/lib/node_modules/@earendil-works /out/usr/local/lib/node_modules/; \
+    ldd /usr/local/bin/node 2>/dev/null \
+      | awk '/=> \// {print $3} /^\// {print $1}' \
+      | while read -r lib; do [ -e "$lib" ] && cp --parents -L "$lib" /out; done
+
+FROM ${BASE}
+
+COPY --from=build /out/ /
+
 # Fail the build rather than shipping an agent that cannot resolve its runtime.
-RUN pi --version
+RUN node --version && pi --version
 
 ENTRYPOINT ["/usr/local/bin/agentbox-entrypoint"]
 CMD ["pi"]

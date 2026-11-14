@@ -15,6 +15,12 @@ const (
 // agree with that decision.
 const ContainerHome = homeDir
 
+// SeedDirEnv tells the entrypoint where to copy allow-listed seed files. The
+// destination is agent-specific and is not always discoverable from the
+// agent's own environment (antigravity has no config-dir variable), so it is
+// passed explicitly as sandbox wiring.
+const SeedDirEnv = "AGENTBOX_SEED_DIR"
+
 // baseEnv is the wiring every agent gets. With --unsetenv-all in the podman
 // argv, nothing at all is inherited from the host unless it appears here or is
 // explicitly requested; PATH must therefore be set rather than assumed.

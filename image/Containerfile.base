@@ -1,47 +1,112 @@
 # Shared base for every agentbox sandbox.
 #
-# Debian, not Alpine: the agents are glibc-linked, and a musl image will not run
-# them. The toolchain layer is shared so that the per-agent images differ only in
-# what the agent itself needs.
+# The shipped image is distroless: it contains the glibc runtime and only the
+# commands the sandbox itself needs, with no package manager or compiler. The
+# tools are assembled in a Debian builder stage and copied in, so the final
+# layer has no apt/dpkg state and cannot be extended at runtime.
 #
-# The tag is pinned by digest as well as name: "stable-slim" moves, and an image
+# Debian, not Alpine: the agents are glibc-linked, and a musl image will not run
+# them. Both stages are Debian 13 so the copied libraries match the distroless
+# runtime.
+#
+# The tags are pinned by digest. "stable-slim" and "latest" move, and an image
 # that is built once and trusted for a long time should not change underneath a
-# rebuild. Bump both together from
-# https://hub.docker.com/_/debian (the digest is the multi-arch index).
-FROM docker.io/library/debian:stable-slim@sha256:fbfb4059d2127120aa05b6e6064523d2102552f0cf0026ddf0701c12f1f8f3e0
+# rebuild. Bump the digest and the matching package set together.
+ARG DEBIAN_IMAGE=docker.io/library/debian:stable-slim@sha256:fbfb4059d2127120aa05b6e6064523d2102552f0cf0026ddf0701c12f1f8f3e0
+ARG DISTROLESS_IMAGE=gcr.io/distroless/base-debian13@sha256:0e48b9bcd868bce9fa872cee10b52961d9e32677823da4bf68eefb44f38e7b9d
+
+FROM ${DEBIAN_IMAGE} AS tools
 
 ENV DEBIAN_FRONTEND=noninteractive
-ENV LANG=C.UTF-8
 
+# busybox supplies the POSIX shell and the small coreutils the entrypoint uses.
+# coreutils supplies install(1), which the vendor installers use. The remaining
+# tools are the smallest set the agents and a coding shell actually need.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       bash \
+      busybox-static \
       ca-certificates \
+      coreutils \
       curl \
       git \
       jq \
       less \
       ripgrep \
-      fd-find \
-      build-essential \
-      pkg-config \
-      python3 \
-      openssh-client \
+      ncurses-base \
       procps \
   && rm -rf /var/lib/apt/lists/*
 
-# Debian ships fd as fdfind; agents expect "fd".
-RUN ln -sf /usr/bin/fdfind /usr/local/bin/fd
+# Assemble a root filesystem containing only the runtime files. Do not copy the
+# Debian package database, docs, or the package manager: they are not needed and
+# would undo the size and attack-surface reduction.
+RUN set -eu; \
+    mkdir -p \
+      /out/usr/bin \
+      /out/usr/lib \
+      /out/usr/share \
+      /out/usr/local/bin \
+      /out/etc \
+      /out/home/agent \
+      /out/workspace \
+      /out/tmp \
+      /out/run/agentbox/seeds; \
+    chmod 1777 /out/tmp; \
+    /bin/busybox --install -s /out/usr/bin; \
+    cp -fL --remove-destination /bin/busybox /out/usr/bin/busybox; \
+    ln -sf /usr/bin/busybox /out/usr/bin/sh; \
+    ln -sf /usr/bin/busybox /out/usr/bin/env; \
+    ln -sf /usr/bin/busybox /out/usr/bin/which; \
+    for f in /bin/bash /usr/bin/curl /usr/bin/git /usr/bin/install /usr/bin/jq /usr/bin/less /usr/bin/rg /usr/bin/ps; do \
+      [ -e "$f" ] || continue; \
+      cp -L --remove-destination "$f" /out/usr/bin/; \
+      ldd "$f" 2>/dev/null \
+        | awk '/=> \// {print $3} /^\// {print $1}' \
+        | while read -r lib; do [ -e "$lib" ] && cp --parents -L "$lib" /out; done; \
+    done; \
+    # git-core helpers (notably git-remote-https) are separate ELF files and
+    # need their own libraries. Scripts simply produce no ldd output.
+    for f in /usr/lib/git-core/*; do \
+      [ -e "$f" ] || continue; \
+      ldd "$f" 2>/dev/null \
+        | awk '/=> \// {print $3} /^\// {print $1}' \
+        | while read -r lib; do [ -e "$lib" ] && cp --parents -L "$lib" /out; done; \
+    done; \
+    find /lib /usr/lib -name 'libnss_*.so.*' -print0 \
+      | xargs -0 -r cp --parents -L -t /out; \
+    cp -a /usr/lib/git-core /out/usr/lib/; \
+    cp -a /usr/share/git-core /out/usr/share/; \
+    cp -a /usr/share/terminfo /out/usr/share/; \
+    cp -a /etc/ssl /out/etc/; \
+    cp /etc/nsswitch.conf /out/etc/nsswitch.conf; \
+    printf '%s\n' \
+      'root:x:0:0:root:/root:/bin/sh' \
+      'agent:x:1000:1000:agent:/home/agent:/bin/bash' \
+      > /out/etc/passwd; \
+    printf '%s\n' \
+      'root:x:0:' \
+      'agent:x:1000:' \
+      > /out/etc/group
 
-# A passwd entry for the mapped user. Under --userns=keep-id the host uid is
-# preserved, so this is only so that tools have a name to resolve; it grants
-# nothing.
-RUN groupadd -g 1000 agent \
- && useradd -u 1000 -g 1000 -m -s /bin/bash agent
+FROM ${DISTROLESS_IMAGE}
 
+COPY --from=tools /out/ /
 COPY entrypoint.sh /usr/local/bin/agentbox-entrypoint
-RUN chmod 0755 /usr/local/bin/agentbox-entrypoint
 
-# /workspace is where the launch directory is mounted.
+# Fail the build if a copied binary is missing a library or the shell cannot
+# start. This is the check that catches an incomplete ldd copy.
+RUN chmod 0755 /usr/local/bin/agentbox-entrypoint \
+ && /usr/bin/bash --version >/dev/null \
+ && /usr/bin/curl --version >/dev/null \
+ && /usr/bin/git --version >/dev/null \
+ && /usr/bin/rg --version >/dev/null \
+ && /usr/bin/less --version >/dev/null \
+ && /usr/bin/install --version >/dev/null \
+ && /usr/bin/jq --version >/dev/null
+
+ENV LANG=C.UTF-8
+
+# /workspace is where the launch directory is mounted. The other writable
+# directories (HOME, state, seeds) are mounted by the session, not baked in.
 WORKDIR /workspace
 
 ENTRYPOINT ["/usr/local/bin/agentbox-entrypoint"]

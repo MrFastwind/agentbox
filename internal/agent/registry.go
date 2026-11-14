@@ -69,7 +69,7 @@ const (
 )
 
 // DefaultImage returns the fully-qualified reference of the image built for the
-// named target (base, opencode, pi, shell).
+// named target (base, opencode, pi, claude, antigravity, shell).
 func DefaultImage(target string) string {
 	return ImageRepository + "/" + target + ":latest"
 }
@@ -135,7 +135,13 @@ type Registry struct {
 
 func New(home string) *Registry {
 	r := &Registry{defs: map[string]Definition{}}
-	for _, d := range []Definition{opencodeDef(home), piDef(home), shellDef()} {
+	for _, d := range []Definition{
+		opencodeDef(home),
+		piDef(home),
+		claudeDef(home),
+		antigravityDef(home),
+		shellDef(),
+	} {
 		r.defs[d.Name] = d
 	}
 	return r
@@ -189,6 +195,8 @@ func (d Definition) ConfigDirEnvVar() string {
 		return "OPENCODE_CONFIG_DIR"
 	case "pi":
 		return "PI_CODING_AGENT_DIR"
+	case "claude":
+		return "CLAUDE_CONFIG_DIR"
 	default:
 		return ""
 	}

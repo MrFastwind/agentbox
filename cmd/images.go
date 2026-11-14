@@ -12,12 +12,12 @@ import (
 // runImages builds the sandbox images from the Containerfiles in image/.
 func runImages(args []string) int {
 	if len(args) == 0 || args[0] != "build" {
-		fmt.Fprintln(os.Stderr, "usage: agentbox images build [base opencode pi shell]")
+		fmt.Fprintln(os.Stderr, "usage: agentbox images build [base opencode pi claude antigravity shell]")
 		return 2
 	}
 	targets := args[1:]
 	if len(targets) == 0 {
-		targets = []string{"base", "opencode", "pi"}
+		targets = []string{"base", "opencode", "pi", "claude", "antigravity"}
 	}
 
 	if err := buildTargets(targets); err != nil {

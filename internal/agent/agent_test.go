@@ -9,7 +9,7 @@ import (
 
 func TestRegistryKnowsItsAgents(t *testing.T) {
 	reg := agent.New("/home/u")
-	for _, want := range []string{"opencode", "pi", "shell"} {
+	for _, want := range []string{"opencode", "pi", "claude", "antigravity", "shell"} {
 		if _, err := reg.Get(want); err != nil {
 			t.Errorf("expected agent %q: %v", want, err)
 		}
@@ -30,6 +30,91 @@ func TestPiNeverSeedsCredentialFiles(t *testing.T) {
 			if s.Rel == forbidden {
 				t.Fatalf("%s is on the seed allow-list", forbidden)
 			}
+		}
+	}
+}
+
+func TestClaudeNeverSeedsCredentialFiles(t *testing.T) {
+	reg := agent.New("/home/u")
+	def, err := reg.Get("claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+	forbidden := []string{
+		".credentials.json",
+		".claude.json",
+		"history.jsonl",
+		"projects",
+		"plugins",
+	}
+	for _, s := range def.SeedFiles {
+		for _, bad := range forbidden {
+			if s.Rel == bad {
+				t.Fatalf("%s is on the claude seed allow-list", bad)
+			}
+		}
+	}
+}
+
+func TestAntigravityNeverSeedsCredentialFiles(t *testing.T) {
+	reg := agent.New("/home/u")
+	def, err := reg.Get("antigravity")
+	if err != nil {
+		t.Fatal(err)
+	}
+	forbidden := []string{
+		"antigravity-cli/antigravity-oauth-token",
+		"google_accounts.json",
+		"oauth_creds.json",
+		"trustedFolders.json",
+		"installation_id",
+		"state.json",
+		"projects.json",
+	}
+	for _, s := range def.SeedFiles {
+		for _, bad := range forbidden {
+			if s.Rel == bad {
+				t.Fatalf("%s is on the antigravity seed allow-list", bad)
+			}
+		}
+	}
+}
+
+// Every registered agent must name a fully-qualified image, so podman never
+// resolves an unprefixed name through an untrusted search list.
+func TestRegistryImagesAreFullyQualified(t *testing.T) {
+	reg := agent.New("/home/u")
+	for _, name := range []string{"opencode", "pi", "claude", "antigravity", "shell"} {
+		def, err := reg.Get(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.HasPrefix(def.Image, "localhost/agentbox/") && !strings.Contains(def.Image, ".") {
+			t.Errorf("%s image %q is not fully qualified", name, def.Image)
+		}
+	}
+}
+
+func TestConfigDirEnvVar(t *testing.T) {
+	reg := agent.New("/home/u")
+	for _, tc := range []struct {
+		agent string
+		want  string
+	}{
+		{"opencode", "OPENCODE_CONFIG_DIR"},
+		{"pi", "PI_CODING_AGENT_DIR"},
+		{"claude", "CLAUDE_CONFIG_DIR"},
+		// antigravity has no config-dir variable; the entrypoint is told
+		// the seed destination explicitly instead.
+		{"antigravity", ""},
+		{"shell", ""},
+	} {
+		def, err := reg.Get(tc.agent)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := def.ConfigDirEnvVar(); got != tc.want {
+			t.Errorf("%s: ConfigDirEnvVar = %q, want %q", tc.agent, got, tc.want)
 		}
 	}
 }
@@ -90,6 +175,36 @@ func TestStripRemovesOnlyCredentialKeys(t *testing.T) {
 	for _, kept := range []string{"dark", "keep"} {
 		if !strings.Contains(s, kept) {
 			t.Errorf("non-credential value %q was lost: %s", kept, s)
+		}
+	}
+}
+
+func TestStripRemovesProviderPrefixedCredentialKeys(t *testing.T) {
+	raw := []byte(`{
+		"env": {
+			"ANTHROPIC_API_KEY": "sk-ant",
+			"ANTHROPIC_AUTH_TOKEN": "tok",
+			"AWS_SECRET_ACCESS_KEY": "aws",
+			"CLAUDE_CODE_USE_BEDROCK": "1",
+			"MAX_TOKENS": "4096"
+		}
+	}`)
+	out, removed, err := agent.StripCredentialKeysFromJSON(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(removed) != 3 {
+		t.Fatalf("expected 3 provider-prefixed keys removed, got %v", removed)
+	}
+	s := string(out)
+	for _, gone := range []string{"sk-ant", "tok", "aws\""} {
+		if strings.Contains(s, gone) {
+			t.Errorf("credential material %q survived stripping: %s", gone, s)
+		}
+	}
+	for _, kept := range []string{"CLAUDE_CODE_USE_BEDROCK", "MAX_TOKENS"} {
+		if !strings.Contains(s, kept) {
+			t.Errorf("non-credential setting %q was lost: %s", kept, s)
 		}
 	}
 }

@@ -487,8 +487,8 @@ func TestRunImagesBuilds(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d (stderr=%s)", code, errb)
 	}
-	if len(builds) != 3 {
-		t.Fatalf("expected 3 builds (base, opencode, pi), got %d: %v", len(builds), builds)
+	if len(builds) != 5 {
+		t.Fatalf("expected 5 builds (base, opencode, pi, claude, antigravity), got %d: %v", len(builds), builds)
 	}
 	// Non-base targets must receive the fully-qualified BASE build-arg.
 	for _, b := range builds[1:] {
@@ -519,7 +519,7 @@ func TestRunImagesBuildFailure(t *testing.T) {
 func writeContainerFilesHelper(t *testing.T) {
 	t.Helper()
 	dir := t.TempDir()
-	for _, tgt := range []string{"base", "opencode", "pi", "shell"} {
+	for _, tgt := range []string{"base", "opencode", "pi", "claude", "antigravity", "shell"} {
 		if err := os.WriteFile(filepath.Join(dir, "Containerfile."+tgt), []byte("FROM scratch\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -574,4 +574,64 @@ func TestRunDoctorReports(t *testing.T) {
 			t.Fatalf("doctor output missing %q:\n%s", want, out)
 		}
 	}
+}
+
+// --- ensureImageAvailable ---------------------------------------------------
+
+func TestEnsureImageAvailable(t *testing.T) {
+	writeContainerFilesHelper(t)
+	reg := agent.New(t.TempDir())
+	def, err := reg.Get("opencode")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. Custom/non-default image: must not attempt podman check or build.
+	t.Run("CustomImageSkipped", func(t *testing.T) {
+		called := false
+		stubExec(t, func(name string, arg ...string) *exec.Cmd {
+			called = true
+			return exec.Command("sh", "-c", "exit 0")
+		})
+		if err := ensureImageAvailable("docker.io/library/alpine:latest", def, false); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if called {
+			t.Fatal("custom image should not invoke podman")
+		}
+	})
+
+	// 2. Default image already exists.
+	t.Run("AlreadyExists", func(t *testing.T) {
+		var invoked []string
+		stubExec(t, func(name string, arg ...string) *exec.Cmd {
+			invoked = append(invoked, strings.Join(arg, " "))
+			return exec.Command("sh", "-c", "exit 0") // exists -> exit 0
+		})
+		if err := ensureImageAvailable("", def, false); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(invoked) != 1 || !strings.Contains(invoked[0], "image exists") {
+			t.Fatalf("expected single image exists check, got: %v", invoked)
+		}
+	})
+
+	// 3. Default image missing -> builds base and target.
+	t.Run("MissingAutoBuilds", func(t *testing.T) {
+		var builds []string
+		stubExec(t, func(name string, arg ...string) *exec.Cmd {
+			args := strings.Join(arg, " ")
+			if strings.HasPrefix(args, "image exists") {
+				return exec.Command("sh", "-c", "exit 1") // missing -> exit 1
+			}
+			builds = append(builds, args)
+			return exec.Command("sh", "-c", "exit 0")
+		})
+		if err := ensureImageAvailable("", def, false); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(builds) != 2 {
+			t.Fatalf("expected 2 builds (base, opencode), got %d: %v", len(builds), builds)
+		}
+	})
 }

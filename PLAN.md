@@ -49,6 +49,16 @@ The code is normative; this section keeps the plan from lying.
 5. **`/run` and `/var/run` are not blanket deny prefixes.** `/run/media` is a
    legitimate project location; only `/run/user`, `/run/podman`,
    `/run/containers`, `/run/secrets` and the podman socket paths are denied.
+6. **claude and antigravity were added after the original plan, and the base
+   image was slimmed at the same time.** Both keep configuration in the same
+   directory as credentials (`~/.claude/` and `~/.gemini/`), so neither can be
+   mounted; both use the pi-style seed allow-list. Their images start from the
+   shared base and install one pinned release artifact each: the base no longer
+   carries a compiler, Python or an SSH client, because the read-only rootfs
+   cannot install them at runtime and no agent needs them to start. opencode's
+   install is pinned with `--version`, which its installer supports; claude and
+   antigravity use versioned artifacts because their installers resolve
+   "latest".
 
 ---
 
@@ -80,7 +90,7 @@ Measured on the target host, not assumed. These constrain the design.
 | `unqualified-search-registries` is **unset** in `registries.conf`; locally built images are stored as `localhost/...` | References must be fully-qualified image names (FQIN: registry + namespace + name + tag/digest). Short names are not reliably resolvable and Docker's Docker-Hub-default semantics do not apply. See §6a.1 |
 | Rootless podman `--network=host` exposes `enp42s0` **and `tailscale0`** | Host networking grants LAN + tailnet reach. See §10 R1 |
 | Go 1.27.1 present | Static single binary, no cgo |
-| `fastwind:100000:65536` in `/etc/subuid`, userns enabled | Rootless subuid mapping is available |
+| `user:100000:65536` in `/etc/subuid`, userns enabled | Rootless subuid mapping is available |
 
 ### Agent: opencode
 

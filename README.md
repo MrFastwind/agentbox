@@ -1,7 +1,7 @@
 # agentbox
 
-Run a coding agent (opencode, pi) inside a rootless-podman sandbox that is
-deliberately small, read-only, credential-tight and ephemeral.
+Run a coding agent (opencode, pi, claude, antigravity) inside a rootless-podman
+sandbox that is deliberately small, read-only, credential-tight and ephemeral.
 
 One command gets you to a shell with the agent pre-wired:
 
@@ -9,6 +9,8 @@ One command gets you to a shell with the agent pre-wired:
 agentbox                          # shell in the sandbox, no agent
 agentbox --agent opencode         # the opencode agent
 agentbox --agent pi               # the pi coding agent
+agentbox --agent claude           # the Claude Code agent
+agentbox --agent antigravity      # Google Antigravity (binary: agy)
 agentbox npm test                 # trailing arguments run inside
 agentbox -- print-argv            # see the exact podman argv, no run
 ```
@@ -29,31 +31,48 @@ Every flag fails safe: unknown modes, malformed mounts and credential-shaped
 surprises are refused with a named reason, and every run can be recorded to an
 audit log.
 
-## The two configuration strategies
+## How agent configuration gets in
 
-How the agent's *host* configuration gets in is the crux, and the two agents
-need different treatment because their on-disk layouts differ.
+How the agent's *host* configuration gets in is the crux. The agents need
+different treatment because their on-disk layouts differ.
 
 **opencode** keeps configuration and secrets in separate places:
 `~/.config/opencode/` (mounted read-only) vs `~/.local/share/opencode/` — which
 holds `auth.json` — *never read at all*. A directory-level rule (never mount the
 state dir) is stronger than a file deny-list, so opencode mounts its config.
 
-**pi** keeps everything in one directory (`~/.pi/agent/`): config, credentials,
-trust marks and sessions. It cannot be mounted safely, so it is *seeded* from an
-**allow-list** — a file that is not on the list is never read, copied or hashed.
-Only three files are seeded, and two of them are rewritten first to strip
-credential-shaped keys:
+**pi**, **claude** and **antigravity** keep configuration and credentials in one
+directory, so mounting any of those directories would hand the sandbox live
+secrets. They are *seeded* instead from an **allow-list** — a file that is not on
+the list is never read, copied or hashed. Where a seeded file may carry inline
+credentials, it is rewritten first to strip credential-shaped keys:
 
 ```
-settings.json      seeded, apiKeys removed        (audited rem_keys)
-models.json        seeded, providers.*.apiKey removed
-models-store.json  seeded unchanged
-auth.json / oauth.json / oauth.json.migrated / trust.json   NEVER
+pi           ~/.pi/agent/
+  settings.json       seeded, apiKeys removed
+  models.json         seeded, providers.*.apiKey removed
+  models-store.json   seeded unchanged
+  auth.json / oauth.json / oauth.json.migrated / trust.json   NEVER
+
+claude       ~/.claude/
+  settings.json       seeded, credential-shaped keys removed
+  keybindings.json    seeded unchanged
+  .credentials.json / .claude.json / history.jsonl / projects / plugins   NEVER
+
+antigravity  ~/.gemini/
+  antigravity-cli/settings.json     seeded, credential-shaped keys removed
+  antigravity-cli/keybindings.json  seeded unchanged
+  antigravity-oauth-token / oauth_creds.json / google_accounts.json
+  trustedFolders.json / installation_id / state.json / history      NEVER
 ```
 
-The boundary that blocks the rest of `~/.pi/agent/` is the allow-list itself,
+The boundary that blocks the rest of each directory is the allow-list itself,
 which is auditable: every seeded file's size and SHA-256 go to the audit log.
+
+For claude, `CLAUDE_CONFIG_DIR` points at the ephemeral container copy, so even
+`.claude.json` (account state and per-project trust) is never read from the host.
+antigravity has no documented relocation variable; the entrypoint is told the
+seed destination explicitly.
 
 ## Security notes you should read
 
@@ -80,8 +99,8 @@ which is auditable: every seeded file's size and SHA-256 go to the audit log.
    or seeded, and the agent is expected to fail to authenticate (or to use `--env`).
 5. **The launch directory is validated like any mount:** `/`, `$HOME`, and any
    ancestor or descendant of a protected path (`~/.ssh`, `~/.aws`, `~/.pi`,
-   `~/.local`, `/run/user`, …) are refused. A symlinked project dir resolves
-   first, so `cd ~` cannot be smuggled.
+   `~/.claude`, `~/.gemini`, `~/.local`, `/run/user`, …) are refused. A symlinked
+   project dir resolves first, so `cd ~` cannot be smuggled.
 6. **Flags before command; `--` to escape.** Reserved words (`exec`, `images`,
    `doctor`, `version`) are recognized only in first position, so
    `agentbox exec foo` runs the `exec` subcommand and
@@ -99,7 +118,7 @@ which is auditable: every seeded file's size and SHA-256 go to the audit log.
 ```
 agentbox [flags] [--] [command...]   run (the default)
 agentbox exec <name> -- <command>    execute into a live sandbox
-agentbox images build [base opencode pi]
+agentbox images build [base opencode pi claude antigravity]
 agentbox doctor                      report what a run would use
 agentbox version
 ```
@@ -122,8 +141,13 @@ believe you control. The file may *request* things; policy still decides.
 ## Building
 
 ```sh
-agentbox images build   # base, opencode, pi
+agentbox images build   # base, opencode, pi, claude, antigravity
 ```
+
+The base image is deliberately slim: it carries only what the entrypoint and the
+agent installers need. Each agent image adds exactly one runtime — the agent's
+pinned release artifact, checked against a digest recorded in the Containerfile.
+That keeps a Node runtime out of the opencode, claude and antigravity images.
 
 ### Image references
 
@@ -133,9 +157,11 @@ the host's `unqualified-search-registries` list, which is not configured here, s
 a short name selects a different image on a different machine.
 
 ```
-opencode    localhost/agentbox/opencode:latest
-pi          localhost/agentbox/pi:latest
-base/shell  localhost/agentbox/base:latest
+opencode     localhost/agentbox/opencode:latest
+pi           localhost/agentbox/pi:latest
+claude       localhost/agentbox/claude:latest
+antigravity  localhost/agentbox/antigravity:latest
+base/shell   localhost/agentbox/base:latest
 ```
 
 `localhost/` is the registry podman gives to locally built images. `--image` and
