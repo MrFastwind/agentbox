@@ -29,6 +29,10 @@ func runDoctor(args []string) int {
 	fmt.Printf("  userns          %s\n", podmanLine("info", "--format", "{{.Host.IDMappings.UIDMap}}"))
 	fmt.Println()
 
+	fmt.Println("images")
+	fmt.Printf("  build inputs    %s\n", imageSourceName())
+	fmt.Println()
+
 	fmt.Println("agents")
 	resolver := policy.NewResolver(fsx.Real{}, os.LookupEnv)
 	for _, name := range reg.Names() {

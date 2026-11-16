@@ -48,11 +48,10 @@ jobs:
           mkdir -p dist
           for arch in amd64 arm64; do
             pkg_dir="dist/agentbox_${VERSION}_linux_${arch}"
-            mkdir -p "${pkg_dir}/image"
+            mkdir -p "${pkg_dir}"
             CGO_ENABLED=0 GOOS=linux GOARCH="${arch}" go build -trimpath \
               -ldflags="-s -w -X agentbox/cmd.version=${VERSION}" \
               -o "${pkg_dir}/agentbox" .
-            cp image/Containerfile.* image/entrypoint.sh "${pkg_dir}/image/"
             cp README.md LICENSE agentbox.yaml.example "${pkg_dir}/"
             tar -czvf "dist/agentbox_${VERSION}_linux_${arch}.tar.gz" -C dist "agentbox_${VERSION}_linux_${arch}"
           done

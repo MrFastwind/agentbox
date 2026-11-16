@@ -59,6 +59,16 @@ The code is normative; this section keeps the plan from lying.
    install is pinned with `--version`, which its installer supports; claude and
    antigravity use versioned artifacts because their installers resolve
    "latest".
+7. **The build inputs are compiled into the binary.** `agentbox images build`
+   needed an `image/` directory beside the executable, found by an
+   `os.Executable` guess and then by `runtime.Caller` into the source tree;
+   release archives had to carry the directory. Both Containerfiles and
+   `entrypoint.sh` are now embedded (`image/embed.go`) and staged into a
+   temporary build context, so the executable is the distribution unit. The
+   files stay in `image/` because the pin tests audit them there, and
+   `AGENTBOX_IMAGE_DIR` remains as an explicit override for iterating on a
+   Containerfile. A directory beside the binary is no longer discovered: build
+   input is not something the filesystem next to the executable gets to decide.
 
 ---
 

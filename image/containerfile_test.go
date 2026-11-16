@@ -1,8 +1,8 @@
-// Package image holds checks over the sandbox Containerfiles.
+// Package image holds the sandbox build inputs and the checks over them.
 //
-// It has no non-test files: the Containerfiles are the artifact, and these tests
-// fail the build when a supply-chain guarantee they are supposed to carry is
-// edited away.
+// embed.go compiles the Containerfiles into the binary; these tests audit the
+// pins they carry and fail the build when a supply-chain guarantee is edited
+// away.
 package image
 
 import (

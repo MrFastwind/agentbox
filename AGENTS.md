@@ -17,6 +17,7 @@ Module: `agentbox` (Go 1.27). Binary: `agentbox`. The only runtime dependency is
 
 ```sh
 make build        # go build ./...
+make install      # single binary to $(PREFIX)/bin (default /usr/local/bin)
 make vet          # go vet ./...
 make test         # go test ./...
 make test-race    # go test -race ./...
@@ -100,7 +101,9 @@ the build when a sandbox guarantee is edited away.
 **New agent**
 1. Add a data-only `Definition` under `internal/agent/` (config strategy, seed
    allow-list, declared env names, fully-qualified image) and register it.
-2. Add `image/Containerfile.<agent>` and wire it into `agentbox images build`.
+2. Add `image/Containerfile.<agent>`, add it to the `//go:embed` list in
+   `image/embed.go` (the binary, not a directory beside it, is what builds
+   images), and wire it into `agentbox images build`.
    Pin the agent version and verify a release artifact against a digest recorded
    in the Containerfile; the installer's "latest" is not a pin. Keep the base
    image slim and add only the runtime that agent needs.

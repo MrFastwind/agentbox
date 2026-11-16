@@ -141,8 +141,24 @@ believe you control. The file may *request* things; policy still decides.
 ## Building
 
 ```sh
+make install            # build and install to /usr/local/bin
+make install PREFIX=~/.local
 agentbox images build   # base, opencode, pi, claude, antigravity
 ```
+
+`make install` places one file on disk: the binary carries the Containerfiles,
+`entrypoint.sh` and the seccomp profile inside it. `PREFIX` (default
+`/usr/local`, so use `sudo make install` there) selects the prefix and `DESTDIR`
+is honoured for packaging; `make uninstall` removes just the binary.
+
+The Containerfiles and `entrypoint.sh` are compiled into the binary, so a
+downloaded `agentbox` builds its own images with no checkout and no `image/`
+directory beside it. The same files live in `image/` because they are the
+reviewable artifact: `image/containerfile_test.go` audits the digests and
+versions they pin. `AGENTBOX_IMAGE_DIR` points a build at a directory instead,
+for iterating on a Containerfile; like `--config`, it is never discovered
+automatically, because whatever happened to sit next to the executable would
+otherwise decide what gets built.
 
 The base image is deliberately slim: it carries only what the entrypoint and the
 agent installers need. Each agent image adds exactly one runtime — the agent's
@@ -180,7 +196,7 @@ internal/session staging (seeds, ephemeral HOME), audit, execution
 internal/audit  redacting JSON decision records
 internal/fsx    filesystem seam for policy tests
 internal/config explicit YAML loading (strict, unknown keys rejected)
-image/          Containerfiles + entrypoint
+image/          Containerfiles + entrypoint (embedded in the binary)
 ```
 
 ## License

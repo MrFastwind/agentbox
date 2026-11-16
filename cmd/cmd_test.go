@@ -527,23 +527,90 @@ func writeContainerFilesHelper(t *testing.T) {
 	t.Setenv("AGENTBOX_IMAGE_DIR", dir)
 }
 
-func TestImageDirOverride(t *testing.T) {
+func TestImageSourceOverride(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("AGENTBOX_IMAGE_DIR", dir)
-	got, err := imageDir()
+	got, cleanup, err := imageSource()
 	if err != nil || got != dir {
-		t.Fatalf("imageDir() = %q, %v; want %q", got, err, dir)
+		t.Fatalf("imageSource() = %q, %v; want %q", got, err, dir)
+	}
+	cleanup()
+	if _, err := os.Stat(dir); err != nil {
+		t.Fatalf("cleanup removed the user's own image directory: %v", err)
 	}
 }
 
-func TestImageDirFallsBackToSourceTree(t *testing.T) {
+// A lone executable must be able to build: the Containerfiles and the
+// entrypoint are compiled in, so no checkout and no image/ directory are
+// needed.
+func TestImageSourceStagesEmbeddedInputs(t *testing.T) {
 	t.Setenv("AGENTBOX_IMAGE_DIR", "")
-	got, err := imageDir()
+	dir, cleanup, err := imageSource()
 	if err != nil {
-		t.Fatalf("imageDir() from a source checkout should resolve: %v", err)
+		t.Fatalf("imageSource(): %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(got, "Containerfile.base")); err != nil {
-		t.Fatalf("imageDir() returned %q without Containerfile.base", got)
+	defer cleanup()
+	for _, name := range []string{
+		"Containerfile.base", "Containerfile.opencode", "Containerfile.pi",
+		"Containerfile.claude", "Containerfile.antigravity", "entrypoint.sh",
+	} {
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			t.Errorf("staged inputs are missing %s: %v", name, err)
+		}
+	}
+}
+
+func TestImageSourceCleansUpTempDir(t *testing.T) {
+	t.Setenv("AGENTBOX_IMAGE_DIR", "")
+	dir, cleanup, err := imageSource()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleanup()
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("staged build inputs %q were not removed", dir)
+	}
+}
+
+// The directory handed to podman must exist while the build runs and be gone
+// afterwards — including on the failure path, so a failed build leaves no
+// staged inputs behind.
+func TestBuildTargetsStagesThenRemovesInputs(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		exit    string
+		wantErr bool
+	}{
+		{name: "success", exit: "exit 0"},
+		{name: "failure", exit: "exit 1", wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("AGENTBOX_IMAGE_DIR", "")
+			var dockerfile, context string
+			stubExec(t, func(name string, arg ...string) *exec.Cmd {
+				for i, a := range arg {
+					if a == "-f" && i+1 < len(arg) {
+						dockerfile = arg[i+1]
+					}
+				}
+				context = arg[len(arg)-1]
+				if _, err := os.Stat(dockerfile); err != nil {
+					t.Errorf("podman was given %q, which does not exist: %v", dockerfile, err)
+				}
+				return exec.Command("sh", "-c", tc.exit)
+			})
+
+			err := buildTargets([]string{"base"})
+			if tc.wantErr != (err != nil) {
+				t.Fatalf("buildTargets() = %v, wantErr=%v", err, tc.wantErr)
+			}
+			if dockerfile == "" || context == "" {
+				t.Fatal("podman was never invoked with a Containerfile and a context")
+			}
+			if _, statErr := os.Stat(context); !os.IsNotExist(statErr) {
+				t.Fatalf("build context %q survived the build", context)
+			}
+		})
 	}
 }
 
