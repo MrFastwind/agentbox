@@ -104,6 +104,10 @@ func TestBaseContainerfileUsesReviewedPins(t *testing.T) {
 		!strings.Contains(src, "cp -a /usr/libexec/git-core/. /out/usr/libexec/git-core/") {
 		t.Fatal("git helpers must be copied under the GIT_EXEC_PATH used by policy")
 	}
+	if !strings.Contains(src, "/usr/bin/curl /usr/bin/env /usr/bin/git") ||
+		!strings.Contains(src, "test -x /usr/bin/env && /bin/bash --version") {
+		t.Fatal("the final image must provide /usr/bin/env for agent shebangs")
+	}
 	if !strings.Contains(src, "/usr/bin/jq /usr/bin/ldd /usr/bin/less") {
 		t.Fatal("the final image must provide ldd for runtime dependency checks")
 	}
