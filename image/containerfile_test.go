@@ -158,6 +158,9 @@ func TestPiContainerfileVerifiesPinnedTarballs(t *testing.T) {
 	if !strings.Contains(src, `case \"$(uname -m)\" in x86_64|amd64) ldd /usr/local/bin/node | grep -F 'libatomic.so.1 => /usr/lib/' >/dev/null ;; esac`) {
 		t.Fatal("the x64 image must fail the build when Node's atomic runtime is unresolved")
 	}
+	if !strings.Contains(src, "chmod 0755 /out/usr/local/lib/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js") {
+		t.Fatal("the pi launcher must be executable by the non-root sandbox user")
+	}
 	for _, stale := range []string{"DEBIAN_IMAGE", "apt-get", "libatomic1", "linux-${NODE_ARCH}.tar.xz"} {
 		if strings.Contains(src, stale) {
 			t.Errorf("Containerfile.pi still carries Debian-era %q", stale)

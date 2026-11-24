@@ -79,6 +79,7 @@ RUN set -eu; \
     ln -sf ../lib/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js \
       /out/usr/local/bin/pi; \
     cp -a /usr/local/lib/node_modules/@earendil-works /out/usr/local/lib/node_modules/; \
+    chmod 0755 /out/usr/local/lib/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js; \
     ldd /usr/local/bin/node 2>/dev/null \
       | awk '/=> \// {print $3} /^\// {print $1}' \
       | while read -r lib; do [ -e "$lib" ] && cp --parents -L "$lib" /out; done
