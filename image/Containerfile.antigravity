@@ -7,15 +7,16 @@
 ARG BASE=localhost/agentbox/base:latest
 FROM ${BASE}
 
-ARG AGY_VERSION=1.5.9
+ARG AGY_VERSION
 
 # Digests for the release assets at
 # https://github.com/google-antigravity/antigravity-cli/releases/tag/<version>
 # Bump the version, both digests, and the smoke test together.
-ARG AGY_SHA256_X64=8b1f5e56779f2434a0af36f1b715a8392a084de550f8c68bc79821f95fabf3fa
-ARG AGY_SHA256_ARM64=3a18c238c7ee6661e43df7e824a7d4c1bed78aeeda09430921a0f1dbfe825bca
+ARG AGY_SHA256_X64
+ARG AGY_SHA256_ARM64
 
-RUN ARCH="$(uname -m)" \
+RUN test -n "${AGY_VERSION}" && test -n "${AGY_SHA256_X64}" && test -n "${AGY_SHA256_ARM64}" \
+ && ARCH="$(uname -m)" \
  && case "$ARCH" in \
       x86_64|amd64) AGY_ARCH=x64;   AGY_SHA256="$AGY_SHA256_X64" ;; \
       aarch64|arm64) AGY_ARCH=arm64; AGY_SHA256="$AGY_SHA256_ARM64" ;; \

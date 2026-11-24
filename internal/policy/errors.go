@@ -15,10 +15,12 @@ const (
 	RefusalEnv       RefusalKind = "env"
 	RefusalNetwork   RefusalKind = "network"
 	RefusalSeed      RefusalKind = "seed"
+	RefusalAuth      RefusalKind = "auth"
 	RefusalResource  RefusalKind = "resource"
 	RefusalAgent     RefusalKind = "agent"
 	RefusalImage     RefusalKind = "image"
 	RefusalHostname  RefusalKind = "hostname"
+	RefusalInstance  RefusalKind = "instance"
 )
 
 // Refusal is a denied decision. Fatal refusals abort the run; non-fatal ones are

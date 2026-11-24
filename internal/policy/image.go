@@ -2,8 +2,12 @@ package policy
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 )
+
+var agentVersionPattern = regexp.MustCompile(`^v?[0-9]+\.[0-9]+\.[0-9]+$`)
+var imageDigestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 
 // ValidateImageRef reports whether ref is a fully-qualified image name.
 //
@@ -17,6 +21,24 @@ import (
 // The rule mirrors podman's own: the first path component is a registry host
 // only when it contains a dot or a colon, or is "localhost". Anything else is a
 // namespace under an unspecified registry and is refused.
+// ValidateAgentVersion accepts only a numeric three-part release version.
+// Agent images are built from reviewed pins; "latest" must never enter a
+// ResolvedSpec, where it would make two runs disagree about what was launched.
+func ValidateAgentVersion(version string) error {
+	if !agentVersionPattern.MatchString(version) {
+		return fmt.Errorf("agent version %q is not a stable three-part version", version)
+	}
+	return nil
+}
+
+// ValidateImageDigest accepts the only digest form emitted by podman here.
+func ValidateImageDigest(digest string) error {
+	if !imageDigestPattern.MatchString(digest) {
+		return fmt.Errorf("image digest %q is not a sha256 digest", digest)
+	}
+	return nil
+}
+
 func ValidateImageRef(ref string) error {
 	if ref == "" {
 		return fmt.Errorf("image reference is empty")

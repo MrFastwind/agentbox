@@ -86,11 +86,79 @@ func (r *Resolver) Resolve(def agent.Definition, req Request) (*ResolvedSpec, er
 	}
 	var refusals []Refusal
 
+	// Named-instance paths are program-owned, but they are still validated
+	// here: a caller bug or a tampered instance file must not be able to point
+	// one instance at another instance's config or HOME, or at a protected
+	// host path.
+	if req.InstanceName != "" {
+		spec.Instance = req.InstanceName
+		spec.Hostname = DefaultInstanceHostname(req.InstanceName)
+		if err := ValidateInstanceName(req.InstanceName); err != nil {
+			refusals = append(refusals, refusal(RefusalInstance, req.InstanceName, err.Error()))
+		}
+		if req.InstanceRoot == "" {
+			refusals = append(refusals, refusal(RefusalInstance, req.InstanceName, "instance root is empty"))
+		} else {
+			root := filepath.Clean(req.InstanceRoot)
+			if err := ValidateInstanceRoot(resolvedHome, root); err != nil {
+				refusals = append(refusals, refusal(RefusalInstance, root, err.Error()))
+			} else if real, err := r.FS.EvalSymlinks(root); err != nil {
+				refusals = append(refusals, refusal(RefusalInstance, root, "cannot resolve: "+err.Error()))
+			} else if real != root {
+				refusals = append(refusals, refusal(RefusalInstance, root, "resolves to "+real+"; refusing a symlinked store"))
+			} else if fi, err := r.FS.Lstat(root); err != nil || !fi.IsDir() {
+				refusals = append(refusals, refusal(RefusalInstance, root, "is not a directory"))
+			} else if fi.Mode().Perm()&0o077 != 0 {
+				refusals = append(refusals, refusal(RefusalInstance, root, "must not be group- or world-accessible"))
+			}
+
+			if req.InstanceHome != "" {
+				homePath := filepath.Join(root, req.InstanceName, "home")
+				if filepath.Clean(req.InstanceHome) != homePath {
+					refusals = append(refusals, refusal(RefusalInstance, req.InstanceHome,
+						"is not the home directory of instance "+req.InstanceName))
+				} else if err := validateInstanceDir(r.FS, homePath); err != nil {
+					refusals = append(refusals, refusal(RefusalInstance, homePath, err.Error()))
+				} else {
+					spec.InstanceHome = homePath
+					spec.Mounts = append(spec.Mounts, ResolvedMount{
+						Host: homePath, Dest: agent.ContainerHome, Access: RW, Origin: "state",
+					})
+				}
+			}
+
+			if req.ConfigRoot != "" && !req.NoUserConfig {
+				configPath := filepath.Join(root, req.InstanceName, "config")
+				if filepath.Clean(req.ConfigRoot) != configPath {
+					refusals = append(refusals, refusal(RefusalInstance, req.ConfigRoot,
+						"is not the config directory of instance "+req.InstanceName))
+				} else if err := validateInstanceDir(r.FS, configPath); err != nil {
+					refusals = append(refusals, refusal(RefusalInstance, configPath, err.Error()))
+				}
+			}
+		}
+	}
+
 	if req.Image != "" {
 		if err := ValidateImageRef(req.Image); err != nil {
 			refusals = append(refusals, refusal(RefusalImage, req.Image, err.Error()))
 		} else {
 			spec.Image = req.Image
+		}
+	}
+
+	if req.ImageVersion != "" {
+		if err := ValidateAgentVersion(req.ImageVersion); err != nil {
+			refusals = append(refusals, refusal(RefusalImage, req.ImageVersion, err.Error()))
+		} else {
+			spec.ImageVersion = req.ImageVersion
+		}
+	}
+	if req.ImageDigest != "" {
+		if err := ValidateImageDigest(req.ImageDigest); err != nil {
+			refusals = append(refusals, refusal(RefusalImage, req.ImageDigest, err.Error()))
+		} else {
+			spec.ImageDigest = req.ImageDigest
 		}
 	}
 
@@ -172,17 +240,61 @@ func (r *Resolver) Resolve(def agent.Definition, req Request) (*ResolvedSpec, er
 		spec.Mounts = append(spec.Mounts, m)
 	}
 
-	switch def.Strategy {
-	case agent.StrategyMount:
-		mounts, refs := r.agentConfigMounts(def, deny)
-		spec.Mounts = append(spec.Mounts, mounts...)
-		refusals = append(refusals, refs...)
-	case agent.StrategySeed:
-		seeds, refs := collectSeeds(r.FS, def, r.Strict)
-		spec.Seed = seeds
-		refusals = append(refusals, refs...)
-	case agent.StrategyNone:
-		// Intentionally nothing: no host path is read, mounted or seeded.
+	// Configuration source. --no-user-config wins over everything, including an
+	// instance clone: it is the explicit "read no host config" switch.
+	configDir := def.ConfigDir
+	configSource := "host"
+	switch {
+	case req.NoUserConfig || def.Strategy == agent.StrategyNone:
+		configSource = "none"
+	case req.ConfigRoot != "":
+		configDir = req.ConfigRoot
+		configSource = "instance"
+	}
+	spec.ConfigSource = configSource
+	spec.UserConfig = configSource != "none"
+
+	if configSource != "none" {
+		switch def.Strategy {
+		case agent.StrategyMount:
+			prefixes := def.SymlinkTargetPrefixes
+			if configSource == "instance" {
+				// The clone materialises top-level links, so the only path a
+				// remaining link may point at is the clone root itself.
+				prefixes = []string{configDir}
+			}
+			mounts, refs := r.agentConfigMountsFrom(def, configDir, deny, prefixes)
+			spec.Mounts = append(spec.Mounts, mounts...)
+			refusals = append(refusals, refs...)
+		case agent.StrategySeed:
+			seeds, refs := collectSeedsFrom(r.FS, def, configDir, r.Strict)
+			spec.Seed = seeds
+			refusals = append(refusals, refs...)
+		case agent.StrategyNone:
+			// Intentionally nothing: no host path is read, mounted or seeded.
+		}
+	}
+
+	// Credentials are never read by default. --user-auth is the one explicit
+	// exception, and the registry allow-list is still the boundary: this flag
+	// cannot name an arbitrary path.
+	spec.UserAuth = req.UserAuth
+	if req.UserAuth {
+		switch {
+		case req.NoUserConfig:
+			refusals = append(refusals, refusal(RefusalAuth, "--user-auth",
+				"conflicts with --no-user-config, which promises that no host path is read"))
+		case req.InstanceName != "":
+			refusals = append(refusals, refusal(RefusalAuth, "--user-auth",
+				"is not supported for named instances: their HOME is persistent, so credentials would be stored on disk"))
+		case len(def.AuthFiles) == 0:
+			refusals = append(refusals, refusal(RefusalAuth, def.Name,
+				"has no authentication files declared"))
+		default:
+			auth, refs := collectAuth(r.FS, resolvedHome, def)
+			spec.Auth = auth
+			refusals = append(refusals, refs...)
+		}
 	}
 
 	env, erefs := resolveEnv(def, req.EnvNames, r.LookupEnv)

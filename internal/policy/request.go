@@ -7,6 +7,19 @@ type Request struct {
 	AgentName    string
 	NoUserConfig bool
 
+	// UserAuth explicitly asks for the agent's allow-listed credential files.
+	// It is false by default and is never enabled by project configuration.
+	UserAuth bool
+
+	// InstanceName, InstanceRoot, InstanceHome and ConfigRoot are set only for
+	// a named instance. InstanceRoot is the resolved store root; the other two
+	// are the program-owned paths inside it. They are inputs like everything
+	// else: Resolve re-validates their containment before using them.
+	InstanceName string
+	InstanceRoot string
+	InstanceHome string
+	ConfigRoot   string
+
 	// LaunchDir is the project directory. Empty means the current directory.
 	LaunchDir string
 	// WorkdirOverride replaces LaunchDir when set (--workdir).
@@ -37,6 +50,10 @@ type Request struct {
 	Command []string
 	// Image overrides the agent image.
 	Image string
+	// ImageVersion and ImageDigest describe a pinned local update. They are
+	// validated before they reach a ResolvedSpec or audit record.
+	ImageVersion string
+	ImageDigest  string
 	// Hostname overrides the container hostname (--hostname). Empty means the
 	// default derived from the agent name.
 	Hostname string

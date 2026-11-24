@@ -49,6 +49,14 @@ func piDef(home string) Definition {
 			{Rel: "models-store.json", Transform: Identity{}},
 		},
 
+		// Read only with --user-auth. auth.json is provider keys/OAuth state;
+		// oauth.json is the live access/refresh token pair. oauth.json.migrated
+		// is deliberately omitted: it is a stale duplicate.
+		AuthFiles: []AuthSpec{
+			{Rel: ".pi/agent/auth.json", ContainerRel: agentDirInContainer + "/auth.json"},
+			{Rel: ".pi/agent/oauth.json", ContainerRel: agentDirInContainer + "/oauth.json"},
+		},
+
 		BaseEnv:        base,
 		PassthroughEnv: []string{"TERM", "LANG", "LC_ALL", "COLORTERM"},
 

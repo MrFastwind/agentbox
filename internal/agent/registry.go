@@ -55,6 +55,19 @@ type SeedSpec struct {
 	Transform Transform
 }
 
+// AuthSpec is an ALLOW-LIST entry for --user-auth. It is deliberately separate
+// from SeedSpec: these files are expected to contain credentials, so they are
+// never passed through StripCredentialKeys or the credential content assertion.
+// They are read only when the user explicitly asks for them, and only from the
+// names declared here.
+type AuthSpec struct {
+	// Rel is the host path relative to the user's home directory.
+	Rel string
+	// ContainerRel is the destination relative to the container's home
+	// directory.
+	ContainerRel string
+}
+
 // Image references must be fully qualified. Podman does not fall back to Docker
 // Hub for an unqualified name the way Docker does: it resolves the name against
 // the host's unqualified-search-registries list, which varies per machine (and
@@ -92,6 +105,10 @@ type Definition struct {
 
 	// SeedFiles is the allow-list, used by StrategySeed.
 	SeedFiles []SeedSpec
+
+	// AuthFiles is the allow-list used only when --user-auth is set. Empty for
+	// agents with no remote authentication (shell) and for StrategyNone.
+	AuthFiles []AuthSpec
 
 	// SymlinkTargetPrefixes bounds where a followed config symlink may point.
 	// The link is followed when its resolved target sits under one of these,
@@ -178,6 +195,7 @@ func (r *Registry) WithoutUserConfig(name string) (Definition, error) {
 	d.Strategy = StrategyNone
 	d.ConfigDir = ""
 	d.SeedFiles = nil
+	d.AuthFiles = nil
 	d.SymlinkTargetPrefixes = nil
 	d.DeniedNames = nil
 	d.BaseEnv = copyEnv(d.BaseEnv)

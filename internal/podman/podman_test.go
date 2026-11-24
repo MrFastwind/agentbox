@@ -206,3 +206,26 @@ func contains(args []string, want string) bool {
 	}
 	return false
 }
+
+func TestArgvEmitsInstanceLabels(t *testing.T) {
+	spec := baseSpec()
+	spec.Instance = "dev"
+	args := podman.Argv(spec, podman.Options{Name: "agentbox-dev", Interactive: true, SeccompProfile: testSeccomp})
+	joined := strings.Join(args, " ")
+	if !strings.Contains(joined, "--label agentbox.managed=true") {
+		t.Fatalf("missing managed label: %v", args)
+	}
+	if !strings.Contains(joined, "--label agentbox.instance=dev") {
+		t.Fatalf("missing instance label: %v", args)
+	}
+	if err := podman.Assert(spec, args); err != nil {
+		t.Fatalf("instance argv violates invariants: %v", err)
+	}
+}
+
+func TestArgvOmitsInstanceLabelsForAdHocRuns(t *testing.T) {
+	args := podman.Argv(baseSpec(), podman.Options{Interactive: true, SeccompProfile: testSeccomp})
+	if strings.Contains(strings.Join(args, " "), "agentbox.instance=") {
+		t.Fatalf("ad-hoc argv must not claim an instance: %v", args)
+	}
+}

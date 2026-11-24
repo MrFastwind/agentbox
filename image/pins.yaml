@@ -1,0 +1,33 @@
+version: 1
+base:
+  args:
+    DEBIAN_IMAGE: docker.io/library/debian:stable-slim@sha256:fbfb4059d2127120aa05b6e6064523d2102552f0cf0026ddf0701c12f1f8f3e0
+    DISTROLESS_IMAGE: gcr.io/distroless/base-debian13@sha256:0e48b9bcd868bce9fa872cee10b52961d9e32677823da4bf68eefb44f38e7b9d
+agents:
+  opencode:
+    version: 1.19.5
+    args:
+      OPENCODE_VERSION: 1.19.5
+      OPENCODE_SHA256_X64: 588310a336fa3b9df36b3f0225b26f679d453efaad0cf3d66c3651ef3ec1647a
+      OPENCODE_SHA256_ARM64: fae5be262d693b7c5e562856cc473e59e741772936db0c0600ac0d5ed5bd088b
+  pi:
+    version: 1.5.2
+    args:
+      DEBIAN_IMAGE: docker.io/library/debian:stable-slim@sha256:fbfb4059d2127120aa05b6e6064523d2102552f0cf0026ddf0701c12f1f8f3e0
+      NODE_VERSION: 26.13.1
+      NODE_SHA256_X64: 5c063e46bab0fbc1c17cc445d7ff129cbdcd0471be6ed83b6ab864f8143bc864
+      NODE_SHA256_ARM64: 89e1853138db51e8b82d3e98ba9c0d3f2956a28e5e55ea1b7e12d25aae92d5dd
+      PI_VERSION: 1.5.2
+      PI_SHA512_HEX: 994588d38aea17555dfe6d6af8fb355de5ac4d7115bd1527b2645af372370f3b9ad13c796d84bdde299eaad21fad77fb3e491a47a111cfe02e4212099689b9c8
+  claude:
+    version: 2.1.325
+    args:
+      CLAUDE_VERSION: 2.1.325
+      CLAUDE_SHA256_X64: 9686b0fb1eefbd7f2cc1f53f932516c29cd605e9d976223323a6c6e9a4c9c7fe
+      CLAUDE_SHA256_ARM64: 2abe2bea8b802190a303f335b0fd09f95eb775457e99df5a4778b09dfab6bbd6
+  antigravity:
+    version: 1.5.9
+    args:
+      AGY_VERSION: 1.5.9
+      AGY_SHA256_X64: 8b1f5e56779f2434a0af36f1b715a8392a084de550f8c68bc79821f95fabf3fa
+      AGY_SHA256_ARM64: 3a18c238c7ee6661e43df7e824a7d4c1bed78aeeda09430921a0f1dbfe825bca

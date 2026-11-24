@@ -119,6 +119,11 @@ seed destination explicitly.
 agentbox [flags] [--] [command...]   run (the default)
 agentbox exec <name> -- <command>    execute into a live sandbox
 agentbox images build [base opencode pi claude antigravity]
+agentbox images check [--agent NAME]  compare installed agent versions with upstream
+agentbox images update [--agent NAME] [--dry-run]
+                                     build and install newest stable agent images
+agentbox images rollback <agent> <version>
+                                     restore a previously installed version
 agentbox doctor                      report what a run would use
 agentbox version
 ```
@@ -151,19 +156,52 @@ agentbox images build   # base, opencode, pi, claude, antigravity
 `/usr/local`, so use `sudo make install` there) selects the prefix and `DESTDIR`
 is honoured for packaging; `make uninstall` removes just the binary.
 
-The Containerfiles and `entrypoint.sh` are compiled into the binary, so a
-downloaded `agentbox` builds its own images with no checkout and no `image/`
-directory beside it. The same files live in `image/` because they are the
-reviewable artifact: `image/containerfile_test.go` audits the digests and
-versions they pin. `AGENTBOX_IMAGE_DIR` points a build at a directory instead,
-for iterating on a Containerfile; like `--config`, it is never discovered
-automatically, because whatever happened to sit next to the executable would
-otherwise decide what gets built.
+The Containerfiles, `entrypoint.sh` and `image/pins.yaml` are compiled into the
+binary, so a downloaded `agentbox` builds its own images with no checkout and no
+`image/` directory beside it. The same files live in `image/` because they are
+the reviewable artifact: `image/containerfile_test.go` audits that the
+Containerfiles require every version and digest as a build argument and that
+`pins.yaml` supplies lowercase, architecture-specific hashes. `AGENTBOX_IMAGE_DIR`
+points a build at a directory instead, for iterating on a Containerfile; like
+`--config`, it is never discovered automatically, because whatever happened to
+sit next to the executable would otherwise decide what gets built.
 
 The base image is deliberately slim: it carries only what the entrypoint and the
 agent installers need. Each agent image adds exactly one runtime — the agent's
-pinned release artifact, checked against a digest recorded in the Containerfile.
-That keeps a Node runtime out of the opencode, claude and antigravity images.
+pinned release artifact, checked against a digest recorded in `pins.yaml`. That
+keeps a Node runtime out of the opencode, claude and antigravity images.
+
+### Updating agents
+
+Agent updates are explicit and never happen inside the sandbox:
+
+```sh
+agentbox images check                 # resolve newest stable versions; no build
+agentbox images update --dry-run      # show the exact images that would be built
+agentbox images update --agent pi     # build one agent
+agentbox images update                # build every agent
+agentbox images rollback claude 2.1.325
+```
+
+`check` and `update` resolve versions from upstream release metadata: GitHub
+releases for opencode, claude and antigravity, and the npm registry for pi.
+"Latest" means the greatest stable three-part version in the release list, not
+a GitHub `latest` marker, which can point at an older release. Prereleases are
+ignored. For opencode and claude, checksums come from the release's `SHA256SUMS`
+/ `SHASUMS256.txt`; for pi, from npm's `sha512-…` integrity; for antigravity,
+from the GitHub release asset's `sha256:` digest. A missing or malformed
+checksum, incompatible Node engine, or malformed release fails the update
+closed.
+
+Each update builds an immutable, fully-qualified `localhost/agentbox/<agent>:<version>`
+image and records it in `$XDG_STATE_HOME/agentbox/images.yaml` (or
+`AGENTBOX_STATE_DIR`). Normal runs use that exact version rather than following
+a rebuilt `:latest` tag; `:latest` is retagged only for compatibility. The state
+also stores the build arguments, so a missing local image can be rebuilt exactly
+without consulting upstream. The audit log and `--print-argv` show the installed
+version, and `doctor` shows the installed image for every agent. Rollback uses
+the saved history and cannot be used for a version that was never installed by
+agentbox.
 
 ### Image references
 
@@ -196,7 +234,8 @@ internal/session staging (seeds, ephemeral HOME), audit, execution
 internal/audit  redacting JSON decision records
 internal/fsx    filesystem seam for policy tests
 internal/config explicit YAML loading (strict, unknown keys rejected)
-image/          Containerfiles + entrypoint (embedded in the binary)
+internal/update upstream version resolution + installed image state
+image/          Containerfiles, entrypoint and pins (embedded in the binary)
 ```
 
 ## License

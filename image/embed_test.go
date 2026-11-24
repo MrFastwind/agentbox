@@ -30,6 +30,9 @@ func TestEmbeddedInputsCoverEveryImageTarget(t *testing.T) {
 	if _, err := FS.ReadFile("entrypoint.sh"); err != nil {
 		t.Errorf("no embedded entrypoint.sh: %v", err)
 	}
+	if _, err := FS.ReadFile("pins.yaml"); err != nil {
+		t.Errorf("no embedded pins.yaml: %v", err)
+	}
 }
 
 // The embedded bytes must be the bytes the pin tests audit. If they ever
@@ -72,6 +75,7 @@ func TestEmbeddedSetIsExactlyTheBuildInputs(t *testing.T) {
 		"Containerfile.claude":      true,
 		"Containerfile.antigravity": true,
 		"entrypoint.sh":             true,
+		"pins.yaml":                 true,
 	}
 	for _, e := range entries {
 		if !want[e.Name()] {

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"os/exec"
+	"strings"
 
 	"agentbox/internal/agent"
 	"agentbox/internal/policy"
@@ -26,4 +27,21 @@ var runSession = func(o session.Options, def agent.Definition, req policy.Reques
 		}
 	}
 	return o.Boot(def, req)
+}
+
+// podmanContainerStatus reports a container's state. The bool is "podman found
+// the container", not "the command succeeded": a missing container and an
+// unavailable runtime are both treated as absent by callers that are about to
+// start or remove one.
+var podmanContainerStatus = func(name string) (string, bool) {
+	out, err := execCommand("podman", "inspect", "--format", "{{.State.Status}}", name).Output()
+	if err != nil {
+		return "", false
+	}
+	return strings.TrimSpace(string(out)), true
+}
+
+// podmanRemove removes a named container, including a running one.
+var podmanRemove = func(name string) error {
+	return execCommand("podman", "rm", "-f", name).Run()
 }

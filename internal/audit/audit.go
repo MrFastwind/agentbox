@@ -17,25 +17,31 @@ import (
 
 // Record is one run's decisions.
 type Record struct {
-	Agent       string        `json:"agent"`
-	Image       string        `json:"image"`
-	Hostname    string        `json:"hostname"`
-	UserConfig  bool          `json:"user_config"`
-	Network     string        `json:"network"`
-	NetworkNote string        `json:"network_note,omitempty"`
-	Userns      string        `json:"userns"`
-	CapDrop     bool          `json:"cap_drop_all"`
-	ReadOnly    bool          `json:"read_only"`
-	UnsetEnv    bool          `json:"unsetenv_all"`
-	HTTPProxy   bool          `json:"http_proxy"`
-	Limits      Limits        `json:"limits"`
-	Mounts      []MountRecord `json:"mounts"`
-	EnvNames    []string      `json:"env_names"`
-	Seeded      []SeedRecord  `json:"seeded_files"`
-	Tmpfs       []string      `json:"tmpfs"`
-	StateDirs   []string      `json:"state_dirs"`
-	Refusals    []string      `json:"refusals,omitempty"`
-	Argv        []string      `json:"argv"`
+	Agent        string        `json:"agent"`
+	Image        string        `json:"image"`
+	ImageVersion string        `json:"image_version,omitempty"`
+	ImageDigest  string        `json:"image_digest,omitempty"`
+	Hostname     string        `json:"hostname"`
+	Instance     string        `json:"instance,omitempty"`
+	ConfigSource string        `json:"config_source,omitempty"`
+	UserConfig   bool          `json:"user_config"`
+	UserAuth     bool          `json:"user_auth"`
+	Network      string        `json:"network"`
+	NetworkNote  string        `json:"network_note,omitempty"`
+	Userns       string        `json:"userns"`
+	CapDrop      bool          `json:"cap_drop_all"`
+	ReadOnly     bool          `json:"read_only"`
+	UnsetEnv     bool          `json:"unsetenv_all"`
+	HTTPProxy    bool          `json:"http_proxy"`
+	Limits       Limits        `json:"limits"`
+	Mounts       []MountRecord `json:"mounts"`
+	EnvNames     []string      `json:"env_names"`
+	Seeded       []SeedRecord  `json:"seeded_files"`
+	Auth         []AuthRecord  `json:"auth_files,omitempty"`
+	Tmpfs        []string      `json:"tmpfs"`
+	StateDirs    []string      `json:"state_dirs"`
+	Refusals     []string      `json:"refusals,omitempty"`
+	Argv         []string      `json:"argv"`
 }
 
 type Limits struct {
@@ -59,6 +65,15 @@ type SeedRecord struct {
 	RemovedKeys []string `json:"removed_keys,omitempty"`
 }
 
+// AuthRecord names a credential file that crossed because --user-auth was set.
+// It records the source/destination, size and hash, never the bytes.
+type AuthRecord struct {
+	Source string `json:"source"`
+	Dest   string `json:"dest"`
+	Size   int    `json:"size"`
+	SHA256 string `json:"sha256"`
+}
+
 // Logger writes newline-delimited JSON records.
 type Logger struct {
 	w io.Writer
@@ -68,17 +83,22 @@ func New(w io.Writer) *Logger { return &Logger{w: w} }
 
 func (l *Logger) Record(spec *policy.ResolvedSpec, argv []string) error {
 	rec := Record{
-		Agent:       spec.Agent,
-		Image:       spec.Image,
-		Hostname:    spec.Hostname,
-		UserConfig:  spec.UserConfig,
-		Network:     spec.Network.Mode,
-		NetworkNote: spec.Network.Warning,
-		Userns:      spec.Userns,
-		CapDrop:     spec.CapDrop,
-		ReadOnly:    spec.ReadOnly,
-		UnsetEnv:    spec.UnsetEnv,
-		HTTPProxy:   spec.HTTPProxy,
+		Agent:        spec.Agent,
+		Image:        spec.Image,
+		ImageVersion: spec.ImageVersion,
+		ImageDigest:  spec.ImageDigest,
+		Hostname:     spec.Hostname,
+		Instance:     spec.Instance,
+		ConfigSource: spec.ConfigSource,
+		UserConfig:   spec.UserConfig,
+		UserAuth:     spec.UserAuth,
+		Network:      spec.Network.Mode,
+		NetworkNote:  spec.Network.Warning,
+		Userns:       spec.Userns,
+		CapDrop:      spec.CapDrop,
+		ReadOnly:     spec.ReadOnly,
+		UnsetEnv:     spec.UnsetEnv,
+		HTTPProxy:    spec.HTTPProxy,
 		Limits: Limits{
 			Memory: spec.Limits.Memory,
 			CPUs:   spec.Limits.CPUs,
@@ -102,6 +122,11 @@ func (l *Logger) Record(spec *policy.ResolvedSpec, argv []string) error {
 		rec.Seeded = append(rec.Seeded, SeedRecord{
 			Rel: s.Rel, Size: s.Size, SHA256: s.SHA256,
 			Transform: s.Transform, RemovedKeys: s.RemovedKeys,
+		})
+	}
+	for _, a := range spec.Auth {
+		rec.Auth = append(rec.Auth, AuthRecord{
+			Source: a.SourceRel, Dest: a.Rel, Size: a.Size, SHA256: a.SHA256,
 		})
 	}
 	for _, r := range spec.Refusals {

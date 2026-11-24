@@ -21,6 +21,18 @@ func Main(argv []string) int {
 		return runDoctor(inv.Args)
 	case "images":
 		return runImages(inv.Args)
+	case "create":
+		return runCreate(inv.Args)
+	case "list":
+		return runList(inv.Args)
+	case "open":
+		return runOpen(inv.Args)
+	case "inspect":
+		return runInspect(inv.Args)
+	case "remove":
+		return runRemove(inv.Args)
+	case "refresh":
+		return runRefresh(inv.Args)
 	case "exec":
 		return runExec(inv.Args)
 	case "version":

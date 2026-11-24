@@ -4,9 +4,13 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+
+	"agentbox/internal/instance"
 )
 
-// runExec runs a command in an already-live sandbox.
+// runExec runs a command in an already-live sandbox. The argument is resolved as
+// an exact container name first, so existing scripts keep working, then as an
+// instance name, which maps to agentbox-<name>.
 func runExec(args []string) int {
 	if len(args) == 0 {
 		fmt.Fprintln(os.Stderr, "usage: agentbox exec <name> -- <command...>")
@@ -22,7 +26,22 @@ func runExec(args []string) int {
 		rest = []string{"/bin/bash", "-l"}
 	}
 
-	argv := append([]string{"exec", "-i", "-t", name}, rest...)
+	container := name
+	if _, ok := podmanContainerStatus(name); !ok {
+		store, err := instance.OpenStore()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "agentbox: exec: %v\n", err)
+			return 1
+		}
+		inst, err := store.Load(name)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "agentbox: exec: no container or instance %q\n", name)
+			return 1
+		}
+		container = inst.ContainerName()
+	}
+
+	argv := append([]string{"exec", "-i", "-t", container}, rest...)
 	cmd := execCommand("podman", argv...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout

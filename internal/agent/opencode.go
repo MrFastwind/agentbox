@@ -49,6 +49,15 @@ func opencodeDef(home string) Definition {
 			"id_ed25519",
 		},
 
+		// The state directory is never mounted. --user-auth is the one explicit
+		// exception, and even then it names only the auth file.
+		AuthFiles: []AuthSpec{
+			{
+				Rel:          ".local/share/opencode/auth.json",
+				ContainerRel: dataHome + "/opencode/auth.json",
+			},
+		},
+
 		BaseEnv:        base,
 		PassthroughEnv: []string{"TERM", "LANG", "LC_ALL", "COLORTERM"},
 
@@ -60,6 +69,7 @@ func opencodeDef(home string) Definition {
 			configHome,
 			configHome + "/opencode",
 			dataHome,
+			dataHome + "/opencode",
 			stateHome,
 			cacheHome,
 		},

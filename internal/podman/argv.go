@@ -22,6 +22,14 @@ func Argv(spec *policy.ResolvedSpec, opts Options) []string {
 	if opts.Name != "" {
 		args = append(args, "--name", opts.Name)
 	}
+	if spec.Instance != "" {
+		// Labels are how `agentbox list` and `exec` distinguish a managed
+		// instance container from an unrelated container with a similar name.
+		args = append(args,
+			"--label", "agentbox.managed=true",
+			"--label", "agentbox.instance="+spec.Instance,
+		)
+	}
 	args = append(args, "--rm")
 
 	// The hostname identifies the box inside the container; podman's default
@@ -110,6 +118,11 @@ func Argv(spec *policy.ResolvedSpec, opts Options) []string {
 // SeededFilesMountDest is where session stages allow-listed seed files for the
 // entrypoint to copy into the agent's writable config directory.
 const SeededFilesMountDest = "/run/agentbox/seeds"
+
+// UserAuthMountDest is where session stages files opted into with --user-auth.
+// The entrypoint copies them into the ephemeral HOME; this path is never a
+// destination the agent is told to read directly.
+const UserAuthMountDest = "/run/agentbox/auth"
 
 // Options are the parts of a run that are not decisions about security.
 type Options struct {

@@ -17,9 +17,15 @@ package cli
 
 // reservedSubcommands are recognized in first position only.
 var reservedSubcommands = map[string]bool{
+	"create":  true,
 	"exec":    true,
 	"images":  true,
 	"doctor":  true,
+	"inspect": true,
+	"list":    true,
+	"open":    true,
+	"refresh": true,
+	"remove":  true,
 	"version": true,
 }
 

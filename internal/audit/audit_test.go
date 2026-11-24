@@ -66,18 +66,20 @@ func TestRedactArgvValuesNeverSurvive(t *testing.T) {
 
 func sampleSpec() *policy.ResolvedSpec {
 	return &policy.ResolvedSpec{
-		Agent:      "pi",
-		Image:      "localhost/agentbox/pi:latest",
-		Hostname:   "agentbox-pi",
-		UserConfig: true,
-		Network:    policy.NetworkDecision{Mode: "pasta", Warning: "pasta note"},
-		Userns:     "keep-id",
-		CapDrop:    true,
-		ReadOnly:   true,
-		UnsetEnv:   true,
-		HTTPProxy:  false,
-		Limits:     policy.Limits{Memory: "4g", CPUs: "2", Pids: 2048},
-		Tmpfs:      []string{"/tmp"},
+		Agent:        "pi",
+		Image:        "localhost/agentbox/pi:1.6.0",
+		ImageVersion: "1.6.0",
+		ImageDigest:  "sha256:" + strings.Repeat("a", 64),
+		Hostname:     "agentbox-pi",
+		UserConfig:   true,
+		Network:      policy.NetworkDecision{Mode: "pasta", Warning: "pasta note"},
+		Userns:       "keep-id",
+		CapDrop:      true,
+		ReadOnly:     true,
+		UnsetEnv:     true,
+		HTTPProxy:    false,
+		Limits:       policy.Limits{Memory: "4g", CPUs: "2", Pids: 2048},
+		Tmpfs:        []string{"/tmp"},
 		Mounts: []policy.ResolvedMount{
 			{Host: "/work", Dest: "/workspace", Access: policy.RW, Origin: "launch-dir"},
 			{Host: "/home/u/.config/opencode", Dest: "/home/agent/.config/opencode", Access: policy.RO, Origin: "agent-config"},
@@ -122,6 +124,9 @@ func TestRecordRedactsSecretsAndKeepsNames(t *testing.T) {
 	var rec Record
 	if err := json.Unmarshal([]byte(raw), &rec); err != nil {
 		t.Fatalf("record is not valid JSON: %v", err)
+	}
+	if rec.ImageVersion != "1.6.0" || rec.ImageDigest != "sha256:"+strings.Repeat("a", 64) {
+		t.Fatalf("image metadata = %q/%q", rec.ImageVersion, rec.ImageDigest)
 	}
 
 	// Env names are recorded (sorted), values never are.
@@ -172,5 +177,22 @@ func TestNewReturnsUsableLogger(t *testing.T) {
 	}
 	if buf.Len() == 0 {
 		t.Fatal("Record wrote nothing")
+	}
+}
+
+func TestRecordCarriesInstanceAndConfigSource(t *testing.T) {
+	spec := sampleSpec()
+	spec.Instance = "dev"
+	spec.ConfigSource = "instance"
+	var buf bytes.Buffer
+	if err := New(&buf).Record(spec, []string{"run", spec.Image}); err != nil {
+		t.Fatal(err)
+	}
+	var rec Record
+	if err := json.Unmarshal(buf.Bytes(), &rec); err != nil {
+		t.Fatal(err)
+	}
+	if rec.Instance != "dev" || rec.ConfigSource != "instance" {
+		t.Fatalf("instance provenance not recorded: %+v", rec)
 	}
 }

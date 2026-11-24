@@ -21,6 +21,13 @@
 #      ephemeral directory resolves that: the container can rewrite its settings,
 #      and nothing it writes survives the exit.
 #
+#   3. Copies files opted into with --user-auth into the ephemeral HOME.
+#
+#      This is the only path by which host credentials enter the sandbox. The
+#      files are named by the registry, staged read-only, and copied 0600; the
+#      host originals are never mounted and never written. A failed copy is a
+#      visible failure, not a silent fallback to an unauthenticated run.
+#
 # Permission failures are tolerated: the opencode configuration directory is a
 # read-only bind mount, and chmod on it is expected to fail.
 
@@ -54,6 +61,11 @@ SEEDS=/run/agentbox/seeds
 if [ -d "$SEEDS" ] && [ -n "${AGENTBOX_SEED_DIR:-}" ]; then
 	ensure_dir "$AGENTBOX_SEED_DIR"
 	cp -a "$SEEDS"/. "$AGENTBOX_SEED_DIR"/ 2>/dev/null || true
+fi
+
+AUTH=/run/agentbox/auth
+if [ -d "$AUTH" ]; then
+	cp -a "$AUTH"/. "$HOME"/
 fi
 
 exec "$@"

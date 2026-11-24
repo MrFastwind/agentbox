@@ -19,11 +19,17 @@ import (
 // A file whose keys are removed by its transform is fine: the removal is
 // recorded, so doctor and --print-argv can show exactly what was stripped.
 func collectSeeds(fs fsx.FS, def agent.Definition, strict bool) ([]SeededFile, []Refusal) {
+	return collectSeedsFrom(fs, def, def.ConfigDir, strict)
+}
+
+// collectSeedsFrom reads the allow-list from configDir. A live run passes the
+// host config directory; an instance passes its cloned config directory.
+func collectSeedsFrom(fs fsx.FS, def agent.Definition, configDir string, strict bool) ([]SeededFile, []Refusal) {
 	var seeds []SeededFile
 	var refusals []Refusal
 
 	for _, spec := range def.SeedFiles {
-		full := filepath.Join(def.ConfigDir, spec.Rel)
+		full := filepath.Join(configDir, spec.Rel)
 
 		raw, err := fs.ReadFile(full)
 		if err != nil {

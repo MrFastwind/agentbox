@@ -55,10 +55,11 @@ The code is normative; this section keeps the plan from lying.
    mounted; both use the pi-style seed allow-list. Their images start from the
    shared base and install one pinned release artifact each: the base no longer
    carries a compiler, Python or an SSH client, because the read-only rootfs
-   cannot install them at runtime and no agent needs them to start. opencode's
-   install is pinned with `--version`, which its installer supports; claude and
-   antigravity use versioned artifacts because their installers resolve
-   "latest".
+    cannot install them at runtime and no agent needs them to start. Every agent
+    now uses a versioned release artifact verified against a digest supplied by
+    `image/pins.yaml`; the opencode installer script was removed too, because it
+    also resolves "latest" before applying `--version` and offers no checksum.
+
 7. **The build inputs are compiled into the binary.** `agentbox images build`
    needed an `image/` directory beside the executable, found by an
    `os.Executable` guess and then by `runtime.Caller` into the source tree;
@@ -68,9 +69,21 @@ The code is normative; this section keeps the plan from lying.
    files stay in `image/` because the pin tests audit them there, and
    `AGENTBOX_IMAGE_DIR` remains as an explicit override for iterating on a
    Containerfile. A directory beside the binary is no longer discovered: build
-   input is not something the filesystem next to the executable gets to decide.
+    input is not something the filesystem next to the executable gets to decide.
+ 8. **Agent updates are explicit CLI rebuilds, not in-container self-updates.**
+    The original plan had no update path; the sandbox's read-only rootfs makes
+    self-update impossible by design. `images check` and `images update` resolve
+    the greatest stable upstream version (max semver across releases, not the
+    GitHub `latest` marker), convert it to exact version/digest build arguments,
+    build `localhost/agentbox/<agent>:<version>`, and record that immutable tag
+    in `$XDG_STATE_HOME/agentbox/images.yaml`. Runs use the recorded tag, so a
+    rebuilt `:latest` cannot change what an existing invocation launches.
+    `images rollback` restores a previously recorded version. Antigravity has
+    no vendor checksum file, so its GitHub asset `digest` is trusted directly;
+    the Containerfile still verifies the downloaded bytes against that digest.
 
 ---
+
 
 ## 1. Problem
 

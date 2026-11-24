@@ -31,6 +31,20 @@ func stubRun(t *testing.T, fn func(session.Options, agent.Definition, policy.Req
 	t.Cleanup(func() { runSession = saved })
 }
 
+func stubContainerStatus(t *testing.T, fn func(name string) (string, bool)) {
+	t.Helper()
+	saved := podmanContainerStatus
+	podmanContainerStatus = fn
+	t.Cleanup(func() { podmanContainerStatus = saved })
+}
+
+func stubPodmanRemove(t *testing.T, fn func(name string) error) {
+	t.Helper()
+	saved := podmanRemove
+	podmanRemove = fn
+	t.Cleanup(func() { podmanRemove = saved })
+}
+
 // capture redirects the process's stdout/stderr for the duration of fn.
 func capture(t *testing.T, fn func() int) (int, string, string) {
 	t.Helper()
@@ -408,6 +422,7 @@ func TestRunExecUsage(t *testing.T) {
 }
 
 func TestRunExecSuccess(t *testing.T) {
+	stubContainerStatus(t, func(string) (string, bool) { return "running", true })
 	var argv []string
 	stubExec(t, func(name string, arg ...string) *exec.Cmd {
 		argv = append([]string{name}, arg...)
@@ -423,6 +438,7 @@ func TestRunExecSuccess(t *testing.T) {
 }
 
 func TestRunExecDefaultsToShell(t *testing.T) {
+	stubContainerStatus(t, func(string) (string, bool) { return "running", true })
 	var argv []string
 	stubExec(t, func(name string, arg ...string) *exec.Cmd {
 		argv = append([]string{name}, arg...)
@@ -438,6 +454,7 @@ func TestRunExecDefaultsToShell(t *testing.T) {
 }
 
 func TestRunExecPropagatesExitCode(t *testing.T) {
+	stubContainerStatus(t, func(string) (string, bool) { return "running", true })
 	stubExec(t, func(name string, arg ...string) *exec.Cmd { return exec.Command("sh", "-c", "exit 3") })
 	code, _, _ := capture(t, func() int { return runExec([]string{"mybox"}) })
 	if code != 3 {
@@ -446,6 +463,7 @@ func TestRunExecPropagatesExitCode(t *testing.T) {
 }
 
 func TestRunExecStartFailure(t *testing.T) {
+	stubContainerStatus(t, func(string) (string, bool) { return "running", true })
 	stubExec(t, func(name string, arg ...string) *exec.Cmd { return exec.Command("/nonexistent/agentbox-xyz") })
 	code, _, errb := capture(t, func() int { return runExec([]string{"mybox"}) })
 	if code != 1 || !strings.Contains(errb, "exec") {
@@ -631,12 +649,13 @@ func TestPodmanLineUnavailable(t *testing.T) {
 }
 
 func TestRunDoctorReports(t *testing.T) {
+	t.Setenv("AGENTBOX_INSTANCE_DIR", t.TempDir())
 	stubExec(t, func(name string, arg ...string) *exec.Cmd { return exec.Command("sh", "-c", "echo x") })
 	code, out, _ := capture(t, func() int { return runDoctor(nil) })
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0", code)
 	}
-	for _, want := range []string{"agentbox doctor", "runtime", "agents", "modes", "network", "workspace"} {
+	for _, want := range []string{"agentbox doctor", "runtime", "agents", "modes", "network", "workspace", "instances"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("doctor output missing %q:\n%s", want, out)
 		}
@@ -701,4 +720,183 @@ func TestEnsureImageAvailable(t *testing.T) {
 			t.Fatalf("expected 2 builds (base, opencode), got %d: %v", len(builds), builds)
 		}
 	})
+}
+
+// --- named instances --------------------------------------------------------
+
+func instanceEnv(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AGENTBOX_INSTANCE_DIR", dir)
+	return dir
+}
+
+func TestRunCreateListInspectOpenRemove(t *testing.T) {
+	root := instanceEnv(t)
+	stubContainerStatus(t, func(string) (string, bool) { return "", false })
+	stubPodmanRemove(t, func(string) error { return nil })
+
+	code, out, errb := capture(t, func() int {
+		return runCreate([]string{"--agent", "shell", "--no-user-config", "--mount", "/tmp:/mnt:ro", "demo"})
+	})
+	if code != 0 || !strings.Contains(out, "created instance demo") {
+		t.Fatalf("create = %d, out=%q, err=%q", code, out, errb)
+	}
+
+	code, out, _ = capture(t, func() int { return runList(nil) })
+	if code != 0 || !strings.Contains(out, "demo") || !strings.Contains(out, "shell") {
+		t.Fatalf("list = %d, out=%q", code, out)
+	}
+
+	code, out, _ = capture(t, func() int { return runList([]string{"--json"}) })
+	if code != 0 || !strings.Contains(out, `"name": "demo"`) {
+		t.Fatalf("list --json = %d, out=%q", code, out)
+	}
+
+	code, out, _ = capture(t, func() int { return runInspect([]string{"--json", "demo"}) })
+	if code != 0 || !strings.Contains(out, `"config_source": "none"`) || !strings.Contains(out, `"persist_state": true`) {
+		t.Fatalf("inspect = %d, out=%q", code, out)
+	}
+
+	var got policy.Request
+	stubRun(t, func(o session.Options, _ agent.Definition, req policy.Request) (int, error) {
+		got = req
+		if o.Name != "agentbox-demo" {
+			t.Fatalf("session name = %q, want agentbox-demo", o.Name)
+		}
+		return 0, nil
+	})
+	code, _, errb = capture(t, func() int {
+		return runOpen([]string{"--print-argv", "demo", "--", "echo", "hi"})
+	})
+	if code != 0 {
+		t.Fatalf("open = %d, err=%q", code, errb)
+	}
+	if got.InstanceName != "demo" || got.InstanceRoot != root || got.InstanceHome == "" {
+		t.Fatalf("open request missing instance fields: %+v", got)
+	}
+	if got.ConfigRoot != "" || !got.NoUserConfig {
+		t.Fatalf("no-user-config instance should not read config: %+v", got)
+	}
+	if strings.Join(got.Command, " ") != "echo hi" {
+		t.Fatalf("open command = %v", got.Command)
+	}
+	if strings.Join(got.ExtraMounts, ",") != "/tmp:/mnt:ro" {
+		t.Fatalf("open mounts = %v", got.ExtraMounts)
+	}
+
+	code, out, _ = capture(t, func() int { return runRemove([]string{"demo"}) })
+	if code != 0 || !strings.Contains(out, "removed instance demo") {
+		t.Fatalf("remove = %d, out=%q", code, out)
+	}
+	if _, err := os.Stat(filepath.Join(root, "demo")); !os.IsNotExist(err) {
+		t.Fatalf("instance directory still exists: %v", err)
+	}
+}
+
+func TestRunCreateDuplicateAndBadName(t *testing.T) {
+	instanceEnv(t)
+	if code, _, _ := capture(t, func() int { return runCreate([]string{"--agent", "shell", "--no-user-config", "demo"}) }); code != 0 {
+		t.Fatalf("first create = %d", code)
+	}
+	if code, _, errb := capture(t, func() int { return runCreate([]string{"--agent", "shell", "--no-user-config", "demo"}) }); code != 1 || !strings.Contains(errb, "already exists") {
+		t.Fatalf("duplicate create = %d, err=%q", code, errb)
+	}
+	if code, _, _ := capture(t, func() int { return runCreate([]string{"Bad"}) }); code != 2 {
+		t.Fatalf("bad name create = %d, want 2", code)
+	}
+}
+
+func TestRunOpenUnknownAndReplace(t *testing.T) {
+	instanceEnv(t)
+	if code, _, _ := capture(t, func() int { return runCreate([]string{"--agent", "shell", "--no-user-config", "demo"}) }); code != 0 {
+		t.Fatal("create failed")
+	}
+	if code, _, _ := capture(t, func() int { return runOpen([]string{"missing"}) }); code != 1 {
+		t.Fatalf("open missing = %d, want 1", code)
+	}
+
+	stubContainerStatus(t, func(string) (string, bool) { return "running", true })
+	if code, _, errb := capture(t, func() int { return runOpen([]string{"demo"}) }); code != 1 || !strings.Contains(errb, "--replace") {
+		t.Fatalf("open existing = %d, err=%q", code, errb)
+	}
+	removed := ""
+	stubPodmanRemove(t, func(name string) error { removed = name; return nil })
+	stubRun(t, func(session.Options, agent.Definition, policy.Request) (int, error) { return 0, nil })
+	if code, _, errb := capture(t, func() int { return runOpen([]string{"--replace", "demo"}) }); code != 0 {
+		t.Fatalf("open --replace = %d, err=%q", code, errb)
+	}
+	if removed != "agentbox-demo" {
+		t.Fatalf("removed container = %q", removed)
+	}
+}
+
+func TestRunRemoveRunningNeedsForce(t *testing.T) {
+	instanceEnv(t)
+	if code, _, _ := capture(t, func() int { return runCreate([]string{"--agent", "shell", "--no-user-config", "demo"}) }); code != 0 {
+		t.Fatal("create failed")
+	}
+	stubContainerStatus(t, func(string) (string, bool) { return "running", true })
+	if code, _, errb := capture(t, func() int { return runRemove([]string{"demo"}) }); code != 1 || !strings.Contains(errb, "--force") {
+		t.Fatalf("remove running = %d, err=%q", code, errb)
+	}
+	removed := ""
+	stubPodmanRemove(t, func(name string) error { removed = name; return nil })
+	if code, _, _ := capture(t, func() int { return runRemove([]string{"--force", "demo"}) }); code != 0 {
+		t.Fatalf("remove --force = %d", code)
+	}
+	if removed != "agentbox-demo" {
+		t.Fatalf("removed container = %q", removed)
+	}
+}
+
+func TestRunRefreshWithoutHostConfig(t *testing.T) {
+	instanceEnv(t)
+	if code, _, _ := capture(t, func() int { return runCreate([]string{"--agent", "shell", "--no-user-config", "demo"}) }); code != 0 {
+		t.Fatal("create failed")
+	}
+	stubContainerStatus(t, func(string) (string, bool) { return "", false })
+	if code, _, errb := capture(t, func() int { return runRefresh([]string{"demo"}) }); code != 1 || !strings.Contains(errb, "without host configuration") {
+		t.Fatalf("refresh = %d, err=%q", code, errb)
+	}
+}
+
+func TestRunExecResolvesInstance(t *testing.T) {
+	instanceEnv(t)
+	if code, _, _ := capture(t, func() int { return runCreate([]string{"--agent", "shell", "--no-user-config", "demo"}) }); code != 0 {
+		t.Fatal("create failed")
+	}
+	stubContainerStatus(t, func(name string) (string, bool) {
+		return "running", name == "agentbox-demo"
+	})
+	var argv []string
+	stubExec(t, func(name string, arg ...string) *exec.Cmd {
+		argv = append([]string{name}, arg...)
+		return exec.Command("sh", "-c", "exit 0")
+	})
+	code, _, _ := capture(t, func() int { return runExec([]string{"demo", "--", "echo", "hi"}) })
+	if code != 0 {
+		t.Fatalf("exec instance = %d", code)
+	}
+	if strings.Join(argv, " ") != "podman exec -i -t agentbox-demo echo hi" {
+		t.Fatalf("exec argv = %v", argv)
+	}
+}
+
+func TestRunExecPrefersExactContainer(t *testing.T) {
+	stubContainerStatus(t, func(string) (string, bool) { return "running", true })
+	var argv []string
+	stubExec(t, func(name string, arg ...string) *exec.Cmd {
+		argv = append([]string{name}, arg...)
+		return exec.Command("sh", "-c", "exit 0")
+	})
+	if code, _, _ := capture(t, func() int { return runExec([]string{"mybox", "--", "true"}) }); code != 0 {
+		t.Fatalf("exec = %d", code)
+	}
+	if strings.Join(argv, " ") != "podman exec -i -t mybox true" {
+		t.Fatalf("exec argv = %v", argv)
+	}
 }

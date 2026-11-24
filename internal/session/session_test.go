@@ -128,6 +128,30 @@ func TestBootPrintArgvStagesAndDoesNotRun(t *testing.T) {
 	}
 }
 
+func TestBootPrintArgvShowsInstalledVersion(t *testing.T) {
+	withRun(t, func(*policy.ResolvedSpec, []string, *os.File, *os.File, *os.File) (int, error) {
+		t.Fatal("PrintArgv must not invoke podman")
+		return 1, nil
+	})
+	out, err := os.CreateTemp(t.TempDir(), "argv")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer out.Close()
+	o := options(fakeHost(), out)
+	o.PrintArgv = true
+	if code, err := o.Boot(baseDef(), policy.Request{LaunchDir: testProject, ImageVersion: "2.4.1"}); err != nil || code != 0 {
+		t.Fatalf("Boot = (%d, %v)", code, err)
+	}
+	raw, err := os.ReadFile(out.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "# image localhost/agentbox/base:latest version 2.4.1\n") {
+		t.Fatalf("printed argv missing version comment:\n%s", raw)
+	}
+}
+
 func TestBootStagesStateAndSeedsAndRuns(t *testing.T) {
 	var gotSpec *policy.ResolvedSpec
 	var gotArgs []string
@@ -415,4 +439,170 @@ func TestShellQuote(t *testing.T) {
 			t.Fatalf("shellQuote(%q) = %q, want %q", tc.in, got, tc.want)
 		}
 	}
+}
+
+func TestPrepareStateDirsNoFollowCreatesAndTightens(t *testing.T) {
+	home := t.TempDir()
+	if err := os.Chmod(home, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(home, ".config"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := prepareStateDirsNoFollow(home, []string{"/home/agent", "/home/agent/.config", "/home/agent/.local/share/ci"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, dir := range []string{home, filepath.Join(home, ".config"), filepath.Join(home, ".local"), filepath.Join(home, ".local", "share"), filepath.Join(home, ".local", "share", "ci")} {
+		fi, err := os.Lstat(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !fi.IsDir() || fi.Mode().Perm() != 0o700 {
+			t.Fatalf("%s mode = %04o, want directory 0700", dir, fi.Mode().Perm())
+		}
+	}
+}
+
+func TestPrepareStateDirsNoFollowRefusesSymlink(t *testing.T) {
+	home := t.TempDir()
+	if err := os.Chmod(home, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(home, ".config")); err != nil {
+		t.Fatal(err)
+	}
+	if err := prepareStateDirsNoFollow(home, []string{"/home/agent/.config/ci"}); err == nil {
+		t.Fatal("a symlinked state component must be refused")
+	}
+}
+
+func TestPrepareStateDirsNoFollowRefusesFile(t *testing.T) {
+	home := t.TempDir()
+	if err := os.Chmod(home, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".config"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := prepareStateDirsNoFollow(home, []string{"/home/agent/.config/ci"}); err == nil {
+		t.Fatal("a non-directory state component must be refused")
+	}
+}
+
+func TestPrepareStateDirsNoFollowRefusesSymlinkedHome(t *testing.T) {
+	real := t.TempDir()
+	link := filepath.Join(t.TempDir(), "home")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	if err := prepareStateDirsNoFollow(link, nil); err == nil {
+		t.Fatal("a symlinked instance home must be refused")
+	}
+}
+
+func TestBootUsesPersistentInstanceHome(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Chmod(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	instDir := filepath.Join(root, "dev")
+	home := filepath.Join(instDir, "home")
+	config := filepath.Join(instDir, "config")
+	for _, dir := range []string{instDir, home, config} {
+		if err := os.Mkdir(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(config, "settings.json"), []byte(`{"theme":"dark"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	f := fsx.NewFake(testHome, testProject)
+	f.Mkdir(testProject)
+	f.Mkdir(root)
+	f.Paths[root] = fsx.FakeEntry{Dir: true, Mode: 0o700}
+	f.Mkdir(instDir)
+	f.Paths[instDir] = fsx.FakeEntry{Dir: true, Mode: 0o700}
+	f.Mkdir(home)
+	f.Paths[home] = fsx.FakeEntry{Dir: true, Mode: 0o700}
+	f.Mkdir(config)
+	f.Write(filepath.Join(config, "settings.json"), []byte(`{"theme":"dark"}`))
+	f.Paths[config] = fsx.FakeEntry{Dir: true, Mode: 0o700}
+
+	withRun(t, func(*policy.ResolvedSpec, []string, *os.File, *os.File, *os.File) (int, error) {
+		t.Fatal("PrintArgv must not invoke podman")
+		return 1, nil
+	})
+	out, err := os.CreateTemp(t.TempDir(), "argv")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer out.Close()
+	o := options(f, out)
+	o.PrintArgv = true
+	req := policy.Request{
+		LaunchDir:    testProject,
+		InstanceName: "dev",
+		InstanceRoot: root,
+		InstanceHome: home,
+		ConfigRoot:   config,
+	}
+	code, err := o.Boot(baseDef(), req)
+	if err != nil || code != 0 {
+		t.Fatalf("Boot = (%d, %v)", code, err)
+	}
+	raw, err := os.ReadFile(out.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	printed := string(raw)
+	if !strings.Contains(printed, home+":/home/agent:rw") {
+		t.Fatalf("persistent HOME not mounted:\n%s", printed)
+	}
+	if strings.Contains(printed, "agentbox-state-") {
+		t.Fatalf("persistent instance should not use an ephemeral HOME:\n%s", printed)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".config")); err != nil {
+		t.Fatalf("state directories should be prepared in the persistent HOME: %v", err)
+	}
+}
+
+func TestPrepareStateDirsNoFollowErrors(t *testing.T) {
+	t.Run("missing home", func(t *testing.T) {
+		if err := prepareStateDirsNoFollow(filepath.Join(t.TempDir(), "missing"), nil); err == nil {
+			t.Fatal("missing home should fail")
+		}
+	})
+	t.Run("home is file", func(t *testing.T) {
+		home := filepath.Join(t.TempDir(), "home")
+		if err := os.WriteFile(home, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := prepareStateDirsNoFollow(home, nil); err == nil {
+			t.Fatal("a file home should fail")
+		}
+	})
+	t.Run("dotdot component", func(t *testing.T) {
+		home := t.TempDir()
+		if err := prepareStateDirsNoFollow(home, []string{"/home/agent/../escape"}); err == nil {
+			t.Fatal(".. must be refused")
+		}
+	})
+	t.Run("empty component", func(t *testing.T) {
+		home := t.TempDir()
+		if err := prepareStateDirsNoFollow(home, []string{"/home/agent//escape"}); err == nil {
+			t.Fatal("empty components must be refused")
+		}
+	})
+	t.Run("mkdir failure", func(t *testing.T) {
+		home := t.TempDir()
+		if err := os.Chmod(home, 0o500); err != nil {
+			t.Fatal(err)
+		}
+		defer os.Chmod(home, 0o700)
+		if err := prepareStateDirsNoFollow(home, []string{"/home/agent/.config"}); err == nil {
+			t.Fatal("an unwritable home should fail")
+		}
+	})
 }

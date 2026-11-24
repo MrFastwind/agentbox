@@ -14,6 +14,7 @@ import (
 	"agentbox/internal/fsx"
 	"agentbox/internal/policy"
 	"agentbox/internal/session"
+	"agentbox/internal/update"
 )
 
 func runRoot(inv cli.Invocation) int {
@@ -27,6 +28,7 @@ func runRoot(inv cli.Invocation) int {
 		image        = fs.String("image", "", "override the sandbox image (fully-qualified name required)")
 		hostname     = fs.String("hostname", "", "container hostname (default agentbox-<agent>)")
 		noUserConfig = fs.Bool("no-user-config", false, "read, mount and seed no host agent configuration")
+		userAuth     = fs.Bool("user-auth", false, "copy the agent's allow-listed host credential files into the sandbox")
 		network      = fs.String("network", "", "network mode: pasta (default), none, private, host")
 		memory       = fs.String("memory", "", "memory limit (default 4g)")
 		cpus         = fs.String("cpus", "", "CPU limit (default 2)")
@@ -132,6 +134,20 @@ func runRoot(inv cli.Invocation) int {
 		fmt.Fprintf(os.Stderr, "agentbox: %v\n", err)
 		return 2
 	}
+
+	var installed update.Record
+	var installedOK bool
+	if selectedImage == "" {
+		state, err := update.LoadState()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "agentbox: %v\n", err)
+			return 1
+		}
+		installed, installedOK = state.For(selected)
+		if installedOK {
+			selectedImage = installed.Image
+		}
+	}
 	if noConfig {
 		if def, err = reg.WithoutUserConfig(selected); err != nil {
 			fmt.Fprintf(os.Stderr, "agentbox: %v\n", err)
@@ -145,6 +161,7 @@ func runRoot(inv cli.Invocation) int {
 	req := policy.Request{
 		AgentName:         selected,
 		NoUserConfig:      noConfig,
+		UserAuth:          *userAuth,
 		WorkdirOverride:   selectedWorkdir,
 		WorkspaceOverride: selectedWorkspace,
 		ReadOnlyWorkspace: readOnlyWorkspace,
@@ -156,6 +173,7 @@ func runRoot(inv cli.Invocation) int {
 		PidsLimit:         selectedPids,
 		Command:           command,
 		Image:             selectedImage,
+		ImageVersion:      installed.Version,
 		Hostname:          selectedHostname,
 	}
 
@@ -206,14 +224,24 @@ func usage(fs *flag.FlagSet) {
 
 Usage:
   agentbox [flags] [--] [command...]
+  agentbox create [flags] NAME
+  agentbox list [--json]
+  agentbox open [flags] NAME [-- command...]
+  agentbox inspect [--json] NAME
+  agentbox remove [--force] NAME
+  agentbox refresh [--strict-config] NAME
   agentbox exec <name> -- <command...>
   agentbox images build [agent...]
+  agentbox images check [--agent NAME]
+  agentbox images update [--agent NAME] [--dry-run]
+  agentbox images rollback <agent> <version>
   agentbox doctor
   agentbox version
 
 The default invocation is the command: trailing arguments run inside the
-container. Reserved words (exec, images, doctor, version) are recognized only in
-first position; use "--" to run one of them as a program instead.
+container. Reserved words (create, list, open, inspect, remove, refresh, exec,
+images, doctor, version) are recognized only in first position; use "--" to run
+one of them as a program instead.
 
 Flags:
 `)
@@ -235,17 +263,39 @@ func ensureImageAvailable(reqImage string, def agent.Definition, noUserConfig bo
 		return nil
 	}
 	// Determine targets to build. Need base if target isn't base.
-	target := strings.TrimPrefix(image, agent.ImageRepository+"/")
-	if idx := strings.Index(target, ":"); idx >= 0 {
-		target = target[:idx]
-	}
+	raw := strings.TrimPrefix(image, agent.ImageRepository+"/")
+	target, requestedVersion, hasVersion := strings.Cut(raw, ":")
 	var targets []string
 	if target == "base" || target == "shell" {
 		targets = []string{"base"}
 	} else {
 		targets = []string{"base", target}
 	}
-	return buildTargets(targets)
+
+	pins, err := loadPins()
+	if err != nil {
+		return err
+	}
+	versions := map[string]string{}
+	if hasVersion && requestedVersion != "latest" && target != "base" && target != "shell" {
+		if err := policy.ValidateAgentVersion(requestedVersion); err != nil {
+			return err
+		}
+		state, err := update.LoadState()
+		if err != nil {
+			return err
+		}
+		rec, ok := state.For(target)
+		if !ok || rec.Version != requestedVersion {
+			rec, ok = state.Historical(target, requestedVersion)
+		}
+		if !ok {
+			return fmt.Errorf("image %s is missing and has no recorded build inputs", image)
+		}
+		pins = pins.WithAgent(target, update.AgentPin{Version: rec.Version, Args: rec.Args, Source: rec.Source})
+		versions[target] = requestedVersion
+	}
+	return buildTargetsWithPins(targets, pins, versions)
 }
 
 func imageExists(ref string) bool {

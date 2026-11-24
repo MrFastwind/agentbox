@@ -7,8 +7,9 @@ import (
 )
 
 // userOrigins are the mount origins that reflect a decision about a host path
-// the user or their project controls. The session appends "state" and "seed"
-// mounts after resolution; those are program-owned and are not re-checked here.
+// the user or their project controls. The session appends "state", "seed" and
+// "auth" mounts after resolution; those are program-owned and are not re-checked
+// here.
 var userOrigins = map[string]bool{
 	"launch-dir":   true,
 	"agent-config": true,

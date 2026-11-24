@@ -15,5 +15,5 @@ import "embed"
 // here, because this set — not whatever happens to be in a directory beside the
 // executable — is what the shipped binary will build.
 //
-//go:embed Containerfile.base Containerfile.opencode Containerfile.pi Containerfile.claude Containerfile.antigravity entrypoint.sh
+//go:embed Containerfile.base Containerfile.opencode Containerfile.pi Containerfile.claude Containerfile.antigravity entrypoint.sh pins.yaml
 var FS embed.FS

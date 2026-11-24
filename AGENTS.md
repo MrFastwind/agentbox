@@ -42,7 +42,8 @@ internal/podman      argv renderer, invariant assertions, podman invocation
 internal/audit       redacting newline-delimited JSON decision records
 internal/config      explicit YAML loading; unknown keys rejected
 internal/fsx         filesystem seam (real + fake) so policy is testable without a host
-image/               Containerfiles, entrypoint, supply-chain pin tests
+internal/update      upstream release resolution + installed image state
+image/               Containerfiles, entrypoint, pins.yaml, supply-chain pin tests
 ```
 
 The flow is:
@@ -73,6 +74,10 @@ same `policy.ResolvedSpec` so they cannot disagree about what was decided.
   copied or hashed. Keep it that way; do not switch to scanning a directory.
 - Images must be fully qualified (`localhost/agentbox/...`, `docker.io/...`).
   Never accept or emit a short image name.
+- Agent updates are explicit CLI rebuilds. `internal/update` resolves upstream
+  releases into exact versions/digests; nothing inside the sandbox self-updates,
+  and a normal run uses the recorded immutable version tag rather than `:latest`.
+  Missing or malformed upstream checksum metadata fails the update closed.
 - The launch directory, mounts and symlink targets are checked against the
   deny-list. `--config` is never auto-discovered.
 - Fail closed. Unknown modes, malformed input and credential-shaped surprises
@@ -105,8 +110,10 @@ the build when a sandbox guarantee is edited away.
    `image/embed.go` (the binary, not a directory beside it, is what builds
    images), and wire it into `agentbox images build`.
    Pin the agent version and verify a release artifact against a digest recorded
-   in the Containerfile; the installer's "latest" is not a pin. Keep the base
-   image slim and add only the runtime that agent needs.
+   in `image/pins.yaml`; every version/digest is a mandatory build arg, and the
+   installer's "latest" is not a pin. Add an `internal/update` adapter so
+   `images check`/`images update` can resolve and verify new releases. Keep the
+   base image slim and add only the runtime that agent needs.
 3. Add image tests for any pin or supply-chain guarantee.
 4. Update `README.md` (behaviour and the security notes) and this file if the
    architecture changes.

@@ -5,7 +5,7 @@
 # stage and only the runtime files are copied into the distroless base; npm,
 # the package cache, docs and examples never reach the final image.
 ARG BASE=localhost/agentbox/base:latest
-ARG DEBIAN_IMAGE=docker.io/library/debian:stable-slim@sha256:fbfb4059d2127120aa05b6e6064523d2102552f0cf0026ddf0701c12f1f8f3e0
+ARG DEBIAN_IMAGE
 
 FROM ${DEBIAN_IMAGE} AS build
 
@@ -23,8 +23,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Pinned. The image's Node must satisfy the pinned pi version's engines field;
 # drifting either one independently is a real failure mode.
-ARG NODE_VERSION=26.13.1
-ARG PI_VERSION=1.5.2
+ARG NODE_VERSION
+ARG PI_VERSION
 
 # The tarball is verified against a digest pinned here, not merely fetched over
 # TLS from the same host that serves it. Without this, a compromise of the
@@ -32,10 +32,11 @@ ARG PI_VERSION=1.5.2
 # and the image is built once and then trusted for a long time. Bumping
 # NODE_VERSION therefore also requires bumping the matching digest: from
 # https://nodejs.org/dist/v<version>/SHASUMS256.txt.
-ARG NODE_SHA256_X64=5c063e46bab0fbc1c17cc445d7ff129cbdcd0471be6ed83b6ab864f8143bc864
-ARG NODE_SHA256_ARM64=89e1853138db51e8b82d3e98ba9c0d3f2956a28e5e55ea1b7e12d25aae92d5dd
+ARG NODE_SHA256_X64
+ARG NODE_SHA256_ARM64
 
-RUN ARCH="$(uname -m)" \
+RUN test -n "${NODE_VERSION}" && test -n "${NODE_SHA256_X64}" && test -n "${NODE_SHA256_ARM64}" \
+ && ARCH="$(uname -m)" \
  && case "$ARCH" in \
       x86_64|amd64) NODE_ARCH=x64;   NODE_SHA256="$NODE_SHA256_X64" ;; \
       aarch64|arm64) NODE_ARCH=arm64; NODE_SHA256="$NODE_SHA256_ARM64" ;; \
@@ -54,9 +55,10 @@ RUN ARCH="$(uname -m)" \
 # digest in the repository means a registry compromise that swaps the tarball and
 # rewrites its metadata is still caught. Transitive dependencies are still
 # resolved from the registry and are not pinned here.
-ARG PI_SHA512_HEX=994588d38aea17555dfe6d6af8fb355de5ac4d7115bd1527b2645af372370f3b9ad13c796d84bdde299eaad21fad77fb3e491a47a111cfe02e4212099689b9c8
+ARG PI_SHA512_HEX
 
-RUN curl -fsSL -o /tmp/pi.tgz \
+RUN test -n "${PI_VERSION}" && test -n "${PI_SHA512_HEX}" \
+ && curl -fsSL -o /tmp/pi.tgz \
       "https://registry.npmjs.org/@earendil-works/pi-coding-agent/-/pi-coding-agent-${PI_VERSION}.tgz" \
  && echo "${PI_SHA512_HEX}  /tmp/pi.tgz" | sha512sum -c - \
  && npm install --global --omit=dev /tmp/pi.tgz \

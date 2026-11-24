@@ -39,6 +39,19 @@ func antigravityDef(home string) Definition {
 			{Rel: "antigravity-cli/keybindings.json", Transform: Identity{}},
 		},
 
+		// Read only with --user-auth. These are the file-based auth artifacts;
+		// a host that authenticates through KWallet/Secret Service has no token
+		// file here, which policy reports as a warning so the user is not left
+		// guessing why the sandbox is still logged out.
+		AuthFiles: []AuthSpec{
+			{
+				Rel:          ".gemini/antigravity-cli/antigravity-oauth-token",
+				ContainerRel: configInContainer + "/antigravity-cli/antigravity-oauth-token",
+			},
+			{Rel: ".gemini/oauth_creds.json", ContainerRel: configInContainer + "/oauth_creds.json"},
+			{Rel: ".gemini/google_accounts.json", ContainerRel: configInContainer + "/google_accounts.json"},
+		},
+
 		BaseEnv:        base,
 		PassthroughEnv: []string{"TERM", "LANG", "LC_ALL", "COLORTERM"},
 

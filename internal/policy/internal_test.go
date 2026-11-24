@@ -2,6 +2,9 @@ package policy
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -408,13 +411,163 @@ func TestDenyListFallbackWhenHomeUnresolvable(t *testing.T) {
 		}
 	})
 
-	t.Run("home path does not resolve", func(t *testing.T) {
-		d := NewResolver(fsx.NewFake("/no/such/home", "/no/such/home"), noEnv).denyList()
-		if d.Home != "/no/such/home" {
-			t.Fatalf("home = %q, want the unresolved home", d.Home)
+		t.Run("home path does not resolve", func(t *testing.T) {
+			d := NewResolver(fsx.NewFake("/no/such/home", "/no/such/home"), noEnv).denyList()
+			if d.Home != "/no/such/home" {
+				t.Fatalf("home = %q, want the unresolved home", d.Home)
+			}
+			if err := d.ValidateMount("/no/such/home/.ssh/id_ed25519"); err == nil {
+				t.Fatal("the fallback deny-list must still refuse ~/.ssh")
+			}
+		})
+	}
+}
+
+type authFaultFS struct {
+	fsx.FS
+	lstatFail string
+	readFail  string
+	oversize  []byte
+}
+
+func (f authFaultFS) Lstat(path string) (os.FileInfo, error) {
+	if path == f.lstatFail {
+		return nil, os.ErrPermission
+	}
+	return f.FS.Lstat(path)
+}
+
+func (f authFaultFS) ReadFile(path string) ([]byte, error) {
+	if path == f.readFail {
+		if f.oversize != nil {
+			return f.oversize, nil
 		}
-		if err := d.ValidateMount("/no/such/home/.ssh/id_ed25519"); err == nil {
-			t.Fatal("the fallback deny-list must still refuse ~/.ssh")
+		return nil, os.ErrPermission
+	}
+	return f.FS.ReadFile(path)
+}
+
+func TestValidAuthRelKeepsCredentialPathsInsideHome(t *testing.T) {
+	for _, tc := range []struct {
+		path string
+		want bool
+	}{
+		{".local/share/opencode/auth.json", true},
+		{"auth.json", true},
+		{"a/../auth.json", true},
+		{"", false},
+		{"/etc/passwd", false},
+		{".", false},
+		{"..", false},
+		{"../auth.json", false},
+		{"a/../../auth.json", false},
+	} {
+		if got := validAuthRel(tc.path); got != tc.want {
+			t.Errorf("validAuthRel(%q) = %v, want %v", tc.path, got, tc.want)
 		}
-	})
+	}
+}
+
+func TestAccessStringFailsClosedForUnknownValues(t *testing.T) {
+	for _, tc := range []struct {
+		access Access
+		want   string
+	}{{RO, "ro"}, {RW, "rw"}, {Access(7), "ro"}} {
+		if got := tc.access.String(); got != tc.want {
+			t.Errorf("Access(%d).String() = %q, want %q", tc.access, got, tc.want)
+		}
+	}
+}
+
+func TestCollectAuthHappyPathCopiesAllowListedBytes(t *testing.T) {
+	const home = "/home/u"
+	spec := agent.AuthSpec{Rel: ".local/share/opencode/auth.json", ContainerRel: "agents/auth.json"}
+	data := []byte(`{"token":"secret-value"}`)
+	f := fsx.NewFake(home, "/work")
+	f.Write(filepath.Join(home, filepath.FromSlash(spec.Rel)), data)
+
+	auth, refusals := collectAuth(f, home, agent.Definition{AuthFiles: []agent.AuthSpec{spec}})
+	if len(refusals) != 0 || len(auth) != 1 {
+		t.Fatalf("collectAuth = (%d auth, %d refusals)", len(auth), len(refusals))
+	}
+	want := AuthFile{SourceRel: spec.Rel, Rel: spec.ContainerRel, Size: len(data), SHA256: fsx.SHA256Hex(data), Data: data}
+	if !reflect.DeepEqual(auth[0], want) {
+		t.Fatalf("auth[0] = %+v, want %+v", auth[0], want)
+	}
+}
+
+func TestCollectAuthRefusesHostileCredentialFiles(t *testing.T) {
+	const home = "/home/u"
+	data := []byte(`{"token":"secret-value"}`)
+	valid := agent.AuthSpec{Rel: ".config/auth.json", ContainerRel: "agents/auth.json"}
+	full := filepath.Join(home, filepath.FromSlash(valid.Rel))
+
+	tests := []struct {
+		name       string
+		spec       agent.AuthSpec
+		setup      func(*fsx.Fake) fsx.FS
+		wantFatal  bool
+		wantReason string
+	}{
+		{"missing is a warning", valid, func(*fsx.Fake) fsx.FS { return nil }, false, "not present"},
+		{"bad source path", agent.AuthSpec{Rel: "../escape", ContainerRel: "agents/auth.json"}, func(*fsx.Fake) fsx.FS { return nil }, true, "clean home-relative"},
+		{"bad container path", agent.AuthSpec{Rel: valid.Rel, ContainerRel: "/etc/auth.json"}, func(*fsx.Fake) fsx.FS { return nil }, true, "clean home-relative"},
+		{"symlink", valid, func(f *fsx.Fake) fsx.FS { f.Symlink("/etc/passwd", full); return f }, true, "symlink"},
+		{"directory", valid, func(f *fsx.Fake) fsx.FS { f.Mkdir(full); return f }, true, "not a regular file"},
+		{"oversized at lstat", valid, func(f *fsx.Fake) fsx.FS {
+			f.Paths[full] = fsx.FakeEntry{Data: make([]byte, maxAuthFileSize+1), Mode: 0o600}
+			return f
+		}, true, "limit is"},
+		{"lstat failure", valid, func(f *fsx.Fake) fsx.FS {
+			f.Write(full, data)
+			return authFaultFS{FS: f, lstatFail: full}
+		}, true, "could not be inspected"},
+		{"read failure", valid, func(f *fsx.Fake) fsx.FS {
+			f.Write(full, data)
+			return authFaultFS{FS: f, readFail: full}
+		}, true, "could not be read"},
+		{"oversized after read", valid, func(f *fsx.Fake) fsx.FS {
+			f.Write(full, data)
+			return authFaultFS{FS: f, readFail: full, oversize: make([]byte, maxAuthFileSize+1)}
+		}, true, "after reading"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			f := fsx.NewFake(home, "/work")
+			fsys := tc.setup(f)
+			if fsys == nil {
+				fsys = f
+			}
+			auth, refusals := collectAuth(fsys, home, agent.Definition{AuthFiles: []agent.AuthSpec{tc.spec}})
+			if len(auth) != 0 || len(refusals) != 1 {
+				t.Fatalf("collectAuth = (%d auth, %d refusals)", len(auth), len(refusals))
+			}
+			if refusals[0].Kind != RefusalAuth || refusals[0].Fatal != tc.wantFatal {
+				t.Fatalf("refusal = %+v", refusals[0])
+			}
+			if !strings.Contains(refusals[0].Reason, tc.wantReason) {
+				t.Fatalf("reason = %q, want %q", refusals[0].Reason, tc.wantReason)
+			}
+		})
+	}
+}
+
+func TestCollectAuthContinuesAfterMissingFile(t *testing.T) {
+	const home = "/home/u"
+	data := []byte("present")
+	missing := agent.AuthSpec{Rel: ".config/missing.json", ContainerRel: "agents/missing.json"}
+	present := agent.AuthSpec{Rel: ".config/present.json", ContainerRel: "agents/present.json"}
+	f := fsx.NewFake(home, "/work")
+	f.Write(filepath.Join(home, present.Rel), data)
+
+	auth, refusals := collectAuth(f, home, agent.Definition{AuthFiles: []agent.AuthSpec{missing, present}})
+	if len(auth) != 1 || auth[0].SourceRel != present.Rel {
+		t.Fatalf("auth = %+v", auth)
+	}
+	if len(refusals) != 1 || refusals[0].Fatal {
+		t.Fatalf("refusals = %+v", refusals)
+	}
+	if got := collectAuth(f, home, agent.Definition{}); len(got[0]) != 0 || len(got[1]) != 0 {
+		t.Fatal("an empty allow-list read or refused something")
+	}
 }

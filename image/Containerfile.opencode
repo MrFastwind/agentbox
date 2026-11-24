@@ -3,19 +3,31 @@
 # Deliberately carries no Node runtime. opencode is a self-contained native
 # binary, and bundling Node for pi's sake would make every opencode user pay for
 # a runtime they never invoke.
+#
+# Versions and digests are injected from image/pins.yaml. A missing build arg is
+# a build error; there is intentionally no floating default here.
 ARG BASE=localhost/agentbox/base:latest
 FROM ${BASE}
 
-# Pin this. An unpinned agent install means the sandbox image changes underneath
-# the user, and the reviewed version is not the running version. The upstream
-# installer supports --version; verify the flag when bumping.
-ARG OPENCODE_VERSION=1.19.5
+ARG OPENCODE_VERSION
+ARG OPENCODE_SHA256_X64
+ARG OPENCODE_SHA256_ARM64
 
-# The installer places the binary under $HOME/.opencode/bin. It is handed the
-# pinned version explicitly rather than following its default "latest".
-RUN curl -fsSL https://opencode.ai/install | bash -s -- --version "${OPENCODE_VERSION}" \
- && cp -a /root/.opencode/bin/. /usr/local/bin/ \
- && rm -rf /root/.opencode
+RUN set -eu; \
+    test -n "${OPENCODE_VERSION}"; \
+    case "$(uname -m)" in \
+      x86_64|amd64) ARCH=x64; SUM="${OPENCODE_SHA256_X64}" ;; \
+      aarch64|arm64) ARCH=arm64; SUM="${OPENCODE_SHA256_ARM64}" ;; \
+      *) echo "unsupported architecture: $(uname -m)" >&2; exit 1 ;; \
+    esac; \
+    test -n "${SUM}"; \
+    curl -fsSL --retry 3 \
+      "https://github.com/anomalyco/opencode/releases/download/v${OPENCODE_VERSION}/opencode-linux-${ARCH}.tar.gz" \
+      -o /tmp/opencode.tar.gz; \
+    printf '%s  %s\n' "${SUM}" /tmp/opencode.tar.gz | sha256sum -c -; \
+    tar -xzf /tmp/opencode.tar.gz -C /usr/local/bin opencode; \
+    chmod 0755 /usr/local/bin/opencode; \
+    rm -f /tmp/opencode.tar.gz
 
 # Fail the build rather than shipping an image whose agent cannot start, or one
 # whose version drifted from the pin.

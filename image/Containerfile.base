@@ -12,8 +12,8 @@
 # The tags are pinned by digest. "stable-slim" and "latest" move, and an image
 # that is built once and trusted for a long time should not change underneath a
 # rebuild. Bump the digest and the matching package set together.
-ARG DEBIAN_IMAGE=docker.io/library/debian:stable-slim@sha256:fbfb4059d2127120aa05b6e6064523d2102552f0cf0026ddf0701c12f1f8f3e0
-ARG DISTROLESS_IMAGE=gcr.io/distroless/base-debian13@sha256:0e48b9bcd868bce9fa872cee10b52961d9e32677823da4bf68eefb44f38e7b9d
+ARG DEBIAN_IMAGE
+ARG DISTROLESS_IMAGE
 
 FROM ${DEBIAN_IMAGE} AS tools
 

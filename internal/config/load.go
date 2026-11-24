@@ -12,6 +12,7 @@ package config
 
 import (
 	"fmt"
+	"io"
 	"os"
 
 	"gopkg.in/yaml.v3"
@@ -48,12 +49,23 @@ func Load(path string) (*File, error) {
 	}
 	defer f.Close()
 
-	dec := yaml.NewDecoder(f)
+	out, err := Decode(f)
+	if err != nil {
+		return nil, fmt.Errorf("parsing %s: %w", path, err)
+	}
+	return out, nil
+}
+
+// Decode parses a configuration document with the same strict schema as Load.
+// The instance store reuses it for the stored config, so an instance file can
+// never accept a key a --config file would reject.
+func Decode(r io.Reader) (*File, error) {
+	dec := yaml.NewDecoder(r)
 	dec.KnownFields(true)
 
 	var out File
 	if err := dec.Decode(&out); err != nil {
-		return nil, fmt.Errorf("parsing %s: %w", path, err)
+		return nil, err
 	}
 	return &out, nil
 }

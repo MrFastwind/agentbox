@@ -40,6 +40,13 @@ func claudeDef(home string) Definition {
 			{Rel: "keybindings.json", Transform: Identity{}},
 		},
 
+		// Read only with --user-auth. .claude.json and the project/plugin trees
+		// stay out: they carry trust decisions and conversation state, not just
+		// authentication.
+		AuthFiles: []AuthSpec{
+			{Rel: ".claude/.credentials.json", ContainerRel: configInContainer + "/.credentials.json"},
+		},
+
 		BaseEnv:        base,
 		PassthroughEnv: []string{"TERM", "LANG", "LC_ALL", "COLORTERM"},
 

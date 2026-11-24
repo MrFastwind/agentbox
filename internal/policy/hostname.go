@@ -17,6 +17,13 @@ func DefaultHostname(agentName string) string {
 	return HostnamePrefix + agentName
 }
 
+// DefaultInstanceHostname is the hostname of a named instance. Underscores are
+// legal in an instance name but not in an RFC 1123 hostname label, so they are
+// rendered as hyphens here.
+func DefaultInstanceHostname(instance string) string {
+	return HostnamePrefix + strings.ReplaceAll(instance, "_", "-")
+}
+
 // ValidateHostname reports whether h can be used as a container hostname.
 //
 // Podman hands the value to sethostname(2), so the Linux limit (HOST_NAME_MAX,

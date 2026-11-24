@@ -49,6 +49,17 @@ type SeededFile struct {
 	Data        []byte
 }
 
+// AuthFile is one allow-listed credential file read only when --user-auth is
+// set. Rel is the destination relative to the container's HOME; SourceRel is the
+// source relative to the host's home. Data is never logged.
+type AuthFile struct {
+	SourceRel string
+	Rel       string
+	Size      int
+	SHA256    string
+	Data      []byte
+}
+
 // Limits are resource caps.
 type Limits struct {
 	Memory string
@@ -60,11 +71,22 @@ type Limits struct {
 // by the argv renderer, by doctor, by --print-argv and by the audit log, so
 // those four can never disagree about what was decided.
 type ResolvedSpec struct {
-	Agent      string
-	Image      string
-	Command    []string
-	Workdir    string
-	UserConfig bool
+	Agent        string
+	Image        string
+	ImageVersion string
+	ImageDigest  string
+	Command      []string
+	Workdir      string
+	UserConfig   bool
+	UserAuth     bool
+
+	// Instance is the named instance this run belongs to, empty for an ad-hoc
+	// run. ConfigSource says where agent configuration came from: host,
+	// instance or none. InstanceHome is the persistent HOME when the instance
+	// keeps one.
+	Instance     string
+	ConfigSource string
+	InstanceHome string
 
 	// Hostname is the container hostname: gethostname(2) and /etc/hostname
 	// inside the sandbox. Always set — the default is derived from the agent
@@ -75,6 +97,7 @@ type ResolvedSpec struct {
 	Env     []EnvPair
 	Tmpfs   []string
 	Seed    []SeededFile
+	Auth    []AuthFile
 	Network NetworkDecision
 
 	// WritableStateDirs are created 0700 by the entrypoint. Bare tmpfs is 1777

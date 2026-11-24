@@ -72,25 +72,37 @@ func (o Options) Boot(def agent.Definition, req policy.Request) (int, error) {
 	//
 	// This cannot be a podman --tmpfs: podman creates one owned by container 0
 	// with mode 0700 and rejects uid=/gid= on --tmpfs, so under keep-id the
-	// agent cannot write its own HOME. Instead the state lives in a directory
-	// this process creates 0700 and owns, on a tmpfs where one is available, and
-	// is removed on exit. The agent gets a writable HOME; nothing it writes
-	// survives, and nothing it writes is owned by anyone else.
-	stateDir, err := ephemeralDir("agentbox-state-")
-	if err != nil {
-		return 1, fmt.Errorf("creating ephemeral home: %w", err)
+	// agent cannot write its own HOME. An ad-hoc run therefore gets a directory
+	// this process creates 0700 and owns, on a tmpfs where one is available,
+	// and removes on exit. A named instance may instead point at its persistent
+	// HOME, which policy has already validated and mounted; only `agentbox
+	// remove` deletes that.
+	stateDir := spec.InstanceHome
+	persistentHome := stateDir != ""
+	if !persistentHome {
+		var err error
+		stateDir, err = ephemeralDir("agentbox-state-")
+		if err != nil {
+			return 1, fmt.Errorf("creating ephemeral home: %w", err)
+		}
+		cleanups = append(cleanups, func() { os.RemoveAll(stateDir) })
 	}
-	cleanups = append(cleanups, func() { os.RemoveAll(stateDir) })
 
-	if err := prepareStateDirs(stateDir, spec.WritableStateDirs); err != nil {
+	if persistentHome {
+		if err := prepareStateDirsNoFollow(stateDir, spec.WritableStateDirs); err != nil {
+			return 1, err
+		}
+	} else if err := prepareStateDirs(stateDir, spec.WritableStateDirs); err != nil {
 		return 1, err
 	}
-	spec.Mounts = append(spec.Mounts, policy.ResolvedMount{
-		Host:   stateDir,
-		Dest:   agent.ContainerHome,
-		Access: policy.RW,
-		Origin: "state",
-	})
+	if !persistentHome {
+		spec.Mounts = append(spec.Mounts, policy.ResolvedMount{
+			Host:   stateDir,
+			Dest:   agent.ContainerHome,
+			Access: policy.RW,
+			Origin: "state",
+		})
+	}
 
 	// Re-validate the mounts that were decided from host paths. Resolution
 	// already resolved symlinks and applied the deny-list, but the filesystem
@@ -120,6 +132,28 @@ func (o Options) Boot(def agent.Definition, req policy.Request) (int, error) {
 			Dest:   podman.SeededFilesMountDest,
 			Access: policy.RO,
 			Origin: "seed",
+		})
+	}
+
+	// Credential files opted into with --user-auth. They are staged separately
+	// from config seeds so the seed allow-list and its content scan keep their
+	// original meaning, and they are copied into the ephemeral HOME by the
+	// entrypoint rather than mounted over the host's own files.
+	if len(spec.Auth) > 0 {
+		authDir, err := ephemeralDir("agentbox-auth-")
+		if err != nil {
+			return 1, fmt.Errorf("creating auth staging directory: %w", err)
+		}
+		cleanups = append(cleanups, func() { os.RemoveAll(authDir) })
+
+		if err := writeAuthFiles(authDir, spec.Auth); err != nil {
+			return 1, err
+		}
+		spec.Mounts = append(spec.Mounts, policy.ResolvedMount{
+			Host:   authDir,
+			Dest:   podman.UserAuthMountDest,
+			Access: policy.RO,
+			Origin: "auth",
 		})
 	}
 
@@ -158,6 +192,9 @@ func (o Options) Boot(def agent.Definition, req policy.Request) (int, error) {
 	}
 
 	if o.PrintArgv {
+		if spec.ImageVersion != "" {
+			fmt.Fprintf(o.Stdout, "# image %s version %s\n", spec.Image, spec.ImageVersion)
+		}
 		fmt.Fprintln(o.Stdout, shellQuote(args))
 		return 0, nil
 	}
@@ -191,6 +228,55 @@ func prepareStateDirs(stateDir string, containerPaths []string) error {
 	return nil
 }
 
+// prepareStateDirsNoFollow is the persistent-HOME variant. The HOME survives
+// between runs, so its contents are sandbox-writable and must be treated as
+// hostile: walking with Lstat and refusing any symlink prevents a previous run
+// from redirecting a later run's state directory at a host path.
+func prepareStateDirsNoFollow(stateDir string, containerPaths []string) error {
+	if fi, err := os.Lstat(stateDir); err != nil {
+		return fmt.Errorf("checking instance home: %w", err)
+	} else if !fi.IsDir() || fi.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("instance home %s is not a real directory", stateDir)
+	}
+	for _, p := range containerPaths {
+		rel := strings.TrimPrefix(p, agent.ContainerHome)
+		rel = strings.TrimPrefix(rel, "/")
+		cur := stateDir
+		if rel == "" {
+			continue
+		}
+		for _, part := range strings.Split(rel, "/") {
+			if part == "" || part == "." || part == ".." {
+				return fmt.Errorf("refusing unsafe state path %s", p)
+			}
+			next := filepath.Join(cur, part)
+			fi, err := os.Lstat(next)
+			if err != nil {
+				if !os.IsNotExist(err) {
+					return fmt.Errorf("checking state directory %s: %w", p, err)
+				}
+				if err := os.Mkdir(next, 0o700); err != nil {
+					return fmt.Errorf("preparing state directory %s: %w", p, err)
+				}
+				fi, err = os.Lstat(next)
+				if err != nil {
+					return fmt.Errorf("checking state directory %s: %w", p, err)
+				}
+			}
+			if fi.Mode()&os.ModeSymlink != 0 || !fi.IsDir() {
+				return fmt.Errorf("state directory %s is not a real directory", next)
+			}
+			if fi.Mode().Perm() != 0o700 {
+				if err := os.Chmod(next, 0o700); err != nil {
+					return fmt.Errorf("tightening state directory %s: %w", p, err)
+				}
+			}
+			cur = next
+		}
+	}
+	return nil
+}
+
 // writeSeeds writes the allow-listed files into the staging directory,
 // mirroring their relative paths.
 func writeSeeds(dir string, seeds []policy.SeededFile) error {
@@ -201,6 +287,22 @@ func writeSeeds(dir string, seeds []policy.SeededFile) error {
 		}
 		if err := os.WriteFile(dest, s.Data, 0o600); err != nil {
 			return fmt.Errorf("staging %s: %w", s.Rel, err)
+		}
+	}
+	return nil
+}
+
+// writeAuthFiles stages credential files under the container-home-relative path
+// they will be copied to. The staging directory is read-only inside the
+// container, and mode 0600 is preserved by the entrypoint's cp -a.
+func writeAuthFiles(dir string, auth []policy.AuthFile) error {
+	for _, a := range auth {
+		dest := filepath.Join(dir, filepath.FromSlash(a.Rel))
+		if err := os.MkdirAll(filepath.Dir(dest), 0o700); err != nil {
+			return fmt.Errorf("staging auth file %s: %w", a.Rel, err)
+		}
+		if err := os.WriteFile(dest, a.Data, 0o600); err != nil {
+			return fmt.Errorf("staging auth file %s: %w", a.Rel, err)
 		}
 	}
 	return nil

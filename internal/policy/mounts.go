@@ -33,6 +33,12 @@ func parseMount(raw string) (src, dst string, access Access, err error) {
 
 // deniedName matches a filename against never-mount patterns.
 func deniedName(name string, patterns []string) bool {
+	return MatchesDeniedName(name, patterns)
+}
+
+// MatchesDeniedName is the exported form used by the instance cloner, which
+// applies the same never-copy rule recursively.
+func MatchesDeniedName(name string, patterns []string) bool {
 	for _, p := range patterns {
 		if ok, err := path.Match(p, name); err == nil && ok {
 			return true
@@ -101,9 +107,17 @@ func (r *Resolver) explicitMount(deny DenyList, raw string) (ResolvedMount, Refu
 // the sandbox unusable. The outcome is visible in doctor, on stderr, and in the
 // audit log.
 func (r *Resolver) agentConfigMounts(def agent.Definition, deny DenyList) ([]ResolvedMount, []Refusal) {
-	dir, err := r.FS.EvalSymlinks(def.ConfigDir)
+	return r.agentConfigMountsFrom(def, def.ConfigDir, deny, def.SymlinkTargetPrefixes)
+}
+
+// agentConfigMountsFrom is the implementation, parameterised by the directory
+// to read and the prefixes a followed symlink may target. A live run passes the
+// host config directory and the registry's prefixes; an instance passes its
+// cloned config directory and that directory as the only allowed prefix.
+func (r *Resolver) agentConfigMountsFrom(def agent.Definition, configDir string, deny DenyList, symlinkPrefixes []string) ([]ResolvedMount, []Refusal) {
+	dir, err := r.FS.EvalSymlinks(configDir)
 	if err != nil {
-		return nil, []Refusal{refusal(RefusalAgent, def.ConfigDir,
+		return nil, []Refusal{refusal(RefusalAgent, configDir,
 			"cannot resolve agent configuration directory: "+err.Error())}
 	}
 
@@ -119,9 +133,9 @@ func (r *Resolver) agentConfigMounts(def agent.Definition, deny DenyList) ([]Res
 	// directory may contain symlinks out to other volumes: a home-relative
 	// link then resolves outside realpath(home) while remaining an ordinary
 	// path inside the user's home.
-	logicalPrefixes := make([]string, 0, len(def.SymlinkTargetPrefixes))
-	resolvedPrefixes := make([]string, 0, len(def.SymlinkTargetPrefixes))
-	for _, p := range def.SymlinkTargetPrefixes {
+	logicalPrefixes := make([]string, 0, len(symlinkPrefixes))
+	resolvedPrefixes := make([]string, 0, len(symlinkPrefixes))
+	for _, p := range symlinkPrefixes {
 		logicalPrefixes = append(logicalPrefixes, filepath.Clean(p))
 		if resolved, err := r.FS.EvalSymlinks(p); err == nil {
 			p = resolved
