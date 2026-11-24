@@ -61,6 +61,7 @@ RUN set -eu; \
         | awk '/=> \// {print $3} /^\// {print $1}' \
         | while read -r lib; do [ -e "$lib" ] && cp --parents -L "$lib" /out; done; \
     done; \
+    ln -s /usr/bin/bash /out/bin/bash; \
     # git-core helpers (notably git-remote-https) are separate ELF files and
     # need their own libraries. Scripts simply produce no ldd output.
     for f in /usr/libexec/git-core/*; do \

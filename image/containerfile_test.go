@@ -104,6 +104,9 @@ func TestBaseContainerfileUsesReviewedPins(t *testing.T) {
 		!strings.Contains(src, "cp -a /usr/libexec/git-core/. /out/usr/libexec/git-core/") {
 		t.Fatal("git helpers must be copied under the GIT_EXEC_PATH used by policy")
 	}
+	if !strings.Contains(src, "ln -s /usr/bin/bash /out/bin/bash") {
+		t.Fatal("the final image must provide /bin/bash for the default command")
+	}
 	if !strings.Contains(src, "test -x /usr/libexec/git-core/git-remote-https") {
 		t.Fatal("the final image must verify a git transport helper is present")
 	}
