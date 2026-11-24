@@ -75,7 +75,7 @@ RUN set -eu; \
     done; \
     cp -a /usr/libexec/git-core/. /out/usr/libexec/git-core/; \
     if [ -d /usr/share/git-core ]; then cp -a /usr/share/git-core /out/usr/share/; fi; \
-    cp -a /usr/share/terminfo /out/usr/share/; \
+    cp -a /etc/terminfo /out/etc/; \
     cp -a /etc/ssl/certs /out/etc/ssl/; \
     for f in /etc/ssl/cert.pem /etc/ssl/ca-certificates.crt; do \
       [ -e "$f" ] || continue; \
@@ -97,7 +97,7 @@ COPY entrypoint.sh /usr/local/bin/agentbox-entrypoint
 
 # Fail the build if a copied binary is missing a library or the shell cannot
 # start. This is the check that catches an incomplete ldd copy.
-RUN ["/bin/busybox", "sh", "-c", "/bin/chmod 0755 /usr/local/bin/agentbox-entrypoint && /bin/bash --version >/dev/null && /usr/bin/curl --version >/dev/null && /usr/bin/git --version >/dev/null && test -x /usr/libexec/git-core/git-remote-https && /usr/bin/rg --version >/dev/null && /usr/bin/less --version >/dev/null && /usr/bin/install --version >/dev/null && /usr/bin/jq --version >/dev/null && /bin/busybox ps >/dev/null"]
+RUN ["/bin/busybox", "sh", "-c", "/bin/chmod 0755 /usr/local/bin/agentbox-entrypoint && /bin/bash --version >/dev/null && /usr/bin/curl --version >/dev/null && /usr/bin/git --version >/dev/null && test -x /usr/libexec/git-core/git-remote-https && test -f /etc/terminfo/x/xterm-256color && /usr/bin/rg --version >/dev/null && /usr/bin/less --version >/dev/null && /usr/bin/install --version >/dev/null && /usr/bin/jq --version >/dev/null && /bin/busybox ps >/dev/null"]
 
 # /workspace is where the launch directory is mounted. The other writable
 # directories (HOME, state, seeds) are mounted by the session, not baked in.

@@ -107,6 +107,13 @@ func TestBaseContainerfileUsesReviewedPins(t *testing.T) {
 	if !strings.Contains(src, "test -x /usr/libexec/git-core/git-remote-https") {
 		t.Fatal("the final image must verify a git transport helper is present")
 	}
+	if strings.Contains(src, "/usr/share/terminfo") {
+		t.Fatal("Alpine terminfo files are in /etc/terminfo, not /usr/share/terminfo")
+	}
+	if !strings.Contains(src, "cp -a /etc/terminfo /out/etc/") ||
+		!strings.Contains(src, "test -f /etc/terminfo/x/xterm-256color") {
+		t.Fatal("the final image must carry and verify the terminfo database")
+	}
 }
 
 func TestPiContainerfileVerifiesPinnedTarballs(t *testing.T) {
