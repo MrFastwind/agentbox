@@ -31,7 +31,7 @@ RUN set -eu; \
 
 # Fail the build rather than shipping an image whose agent cannot start, or one
 # whose version drifted from the pin.
-RUN opencode --version | grep -F "${OPENCODE_VERSION}"
+RUN ldd /usr/local/bin/opencode | grep -F 'libstdc++.so.6 => /usr/lib/' >/dev/null && opencode --version | grep -F "${OPENCODE_VERSION}"
 
 ENTRYPOINT ["/usr/local/bin/agentbox-entrypoint"]
 CMD ["opencode"]

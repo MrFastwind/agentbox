@@ -28,6 +28,8 @@ RUN apk add --no-cache \
       git \
       jq \
       less \
+      libgcc \
+      libstdc++ \
       musl-utils \
       ncurses-terminfo-base \
       procps-ng \
@@ -54,7 +56,7 @@ RUN set -eu; \
     chmod 1777 /out/tmp; \
     /bin/busybox --install -s /out/bin; \
     cp -fL /bin/busybox /out/bin/busybox; \
-    for f in /bin/bash /bin/ps /usr/bin/curl /usr/bin/git /usr/bin/install /usr/bin/jq /usr/bin/less /usr/bin/rg; do \
+    for f in /bin/bash /bin/ps /usr/bin/curl /usr/bin/git /usr/bin/install /usr/bin/jq /usr/bin/ldd /usr/bin/less /usr/bin/rg; do \
       [ -e "$f" ] || continue; \
       cp -Lf "$f" /out/usr/bin/; \
       ldd "$f" 2>/dev/null \
@@ -73,6 +75,10 @@ RUN set -eu; \
     for lib in /lib/ld-musl-*.so.1; do \
       [ -e "$lib" ] || continue; \
       cp -Lf "$lib" /out/lib/; \
+    done; \
+    for lib in /usr/lib/libstdc++.so.6* /usr/lib/libgcc_s.so.1; do \
+      [ -e "$lib" ] || continue; \
+      cp -a "$lib" /out/usr/lib/; \
     done; \
     cp -a /usr/libexec/git-core/. /out/usr/libexec/git-core/; \
     if [ -d /usr/share/git-core ]; then cp -a /usr/share/git-core /out/usr/share/; fi; \

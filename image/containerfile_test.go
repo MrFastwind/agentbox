@@ -92,7 +92,7 @@ func TestBaseContainerfileUsesReviewedPins(t *testing.T) {
 			t.Errorf("Containerfile.base still carries Debian-era %q", stale)
 		}
 	}
-	for _, pkg := range []string{"bash", "ca-certificates", "curl", "git", "jq", "less", "musl-utils", "ncurses-terminfo-base", "procps-ng", "ripgrep"} {
+	for _, pkg := range []string{"bash", "ca-certificates", "curl", "git", "jq", "less", "libgcc", "libstdc++", "musl-utils", "ncurses-terminfo-base", "procps-ng", "ripgrep"} {
 		if !strings.Contains(src, "      "+pkg+" \\") {
 			t.Errorf("Containerfile.base must keep %q", pkg)
 		}
@@ -103,6 +103,9 @@ func TestBaseContainerfileUsesReviewedPins(t *testing.T) {
 	if !strings.Contains(src, "for f in /usr/libexec/git-core/*; do") ||
 		!strings.Contains(src, "cp -a /usr/libexec/git-core/. /out/usr/libexec/git-core/") {
 		t.Fatal("git helpers must be copied under the GIT_EXEC_PATH used by policy")
+	}
+	if !strings.Contains(src, "/usr/bin/jq /usr/bin/ldd /usr/bin/less") {
+		t.Fatal("the final image must provide ldd for runtime dependency checks")
 	}
 	if !strings.Contains(src, "ln -s /usr/bin/bash /out/bin/bash") {
 		t.Fatal("the final image must provide /bin/bash for the default command")
@@ -116,6 +119,10 @@ func TestBaseContainerfileUsesReviewedPins(t *testing.T) {
 	if !strings.Contains(src, "cp -a /etc/terminfo /out/etc/") ||
 		!strings.Contains(src, "test -f /etc/terminfo/x/xterm-256color") {
 		t.Fatal("the final image must carry and verify the terminfo database")
+	}
+	if !strings.Contains(src, "for lib in /usr/lib/libstdc++.so.6* /usr/lib/libgcc_s.so.1; do") ||
+		!strings.Contains(src, "cp -a \"$lib\" /out/usr/lib/") {
+		t.Fatal("the final image must carry the musl C++ runtime used by agents")
 	}
 }
 
@@ -170,6 +177,9 @@ func TestOpencodeContainerfileVerifiesPinnedTarball(t *testing.T) {
 		t.Fatal("the tarball must be verified with sha256sum -c")
 	}
 	checksumBefore(t, src, "sha256sum -c -", "tar -xzf")
+	if !strings.Contains(src, `ldd /usr/local/bin/opencode | grep -F 'libstdc++.so.6 => /usr/lib/' >/dev/null`) {
+		t.Fatal("the image must fail the build when the opencode C++ runtime is unresolved")
+	}
 	if !strings.Contains(src, `opencode --version | grep -F "${OPENCODE_VERSION}"`) {
 		t.Fatal("the image must fail the build when the installed version drifts")
 	}
