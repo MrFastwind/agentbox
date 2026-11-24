@@ -87,8 +87,9 @@ The code is normative; this section keeps the plan from lying.
     tarballs, and Node publishes an x64 musl tarball (with an arm64 musl build
     from `unofficial-builds.nodejs.org`). An Alpine builder assembles the ldd
     closure into a scratch rootfs; `path`/`env` settings that `--unsetenv-all`
-    strips are declared in `internal/agent/env.go`. `images update` rejects
-    glibc-only releases rather than falling back. Image state schema v2 drops
+    strips are declared in `internal/agent/env.go`. `images update` rebuilds the
+    base before selected agents even for `--agent`, then rejects glibc-only
+    releases rather than falling back. Image state schema v2 drops
     v1 glibc records so an old image cannot be launched with the new runtime
     wiring; the next explicit update rebuilds and records a musl image.
 

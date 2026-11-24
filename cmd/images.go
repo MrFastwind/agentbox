@@ -232,11 +232,9 @@ func runImagesUpdate(args []string) int {
 		return 0
 	}
 
-	if !imageExists(agent.DefaultImage("base")) {
-		if err := buildTargetsWithPins([]string{"base"}, pins, nil); err != nil {
-			fmt.Fprintf(os.Stderr, "agentbox: %v\n", err)
-			return 1
-		}
+	if err := buildTargetsWithPins([]string{"base"}, pins, nil); err != nil {
+		fmt.Fprintf(os.Stderr, "agentbox: %v\n", err)
+		return 1
 	}
 	for _, plan := range plans {
 		imageRef := update.ImageRef(plan.target, plan.candidate.Version)

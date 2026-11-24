@@ -175,6 +175,7 @@ func TestImagesUpdateBuildsPinnedTagsAndRollback(t *testing.T) {
 		t.Fatalf("update output = %q", out)
 	}
 	for _, want := range []string{
+		"-t localhost/agentbox/base:latest",
 		"-t localhost/agentbox/opencode:2.4.1",
 		"-t localhost/agentbox/pi:1.6.0",
 		"-t localhost/agentbox/claude:2.1.331",

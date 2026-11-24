@@ -167,11 +167,12 @@ points a build at a directory instead, for iterating on a Containerfile; like
 sit next to the executable would otherwise decide what gets built.
 
 The base image is deliberately slim: a pinned Alpine stage copies only the musl
-runtime, busybox applets, bash, curl, git helpers, ripgrep and CA certificates
-into a `FROM scratch` rootfs. No apk database, compiler or shell package set is
-left behind. Each agent image adds exactly one runtime — the agent's pinned musl
-release artifact, checked against a digest recorded in `pins.yaml`. That keeps a
-Node runtime out of the opencode, claude and antigravity images. Runtime wiring
+runtime, busybox applets, bash, curl, git helpers, terminfo, the C++ runtime,
+ripgrep and CA certificates into a `FROM scratch` rootfs. No apk database,
+compiler or shell package set is left behind. Each agent image adds exactly one
+runtime — the agent's pinned musl release artifact, checked against a digest
+recorded in `pins.yaml`. That keeps a Node runtime out of the opencode, claude
+and antigravity images. Runtime wiring
 that would otherwise be lost to `--unsetenv-all` (`HOME`, `PATH`, `LANG`,
 `SSL_CERT_FILE`, `GIT_SSL_CAINFO`, `GIT_EXEC_PATH`) lives in
 `internal/agent/env.go`, not in the image.
@@ -187,6 +188,10 @@ agentbox images update --agent pi     # build one agent
 agentbox images update                # build every agent
 agentbox images rollback claude 2.1.325
 ```
+
+`update` rebuilds the base image before the selected agent images, even for
+`--agent`, so runtime fixes in the base cannot be shadowed by a stale
+`base:latest`.
 
 `check` and `update` resolve versions from upstream release metadata: GitHub
 releases for opencode, claude and antigravity, and the npm registry for pi.
