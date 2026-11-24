@@ -1,6 +1,7 @@
 package update
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -27,6 +28,23 @@ func TestLoadStateMissingReturnsEmptyState(t *testing.T) {
 	}
 	if len(state.Agents) != 0 || len(state.History) != 0 {
 		t.Fatal("missing state was not empty")
+	}
+	if state.Version != 2 {
+		t.Fatalf("state version = %d", state.Version)
+	}
+}
+
+func TestLoadStateReportsLegacyState(t *testing.T) {
+	dir := testStateDir(t)
+	if err := writeStateFile(t, dir, "version: 1\nagents: {}\n"); err != nil {
+		t.Fatal(err)
+	}
+	state, err := LoadState()
+	if !errors.Is(err, ErrLegacyState) || state != nil {
+		t.Fatalf("LoadState = (%+v, %v)", state, err)
+	}
+	if fresh := NewState(); fresh.Version != 2 || len(fresh.Agents) != 0 {
+		t.Fatalf("NewState = %+v", fresh)
 	}
 }
 
@@ -120,8 +138,8 @@ func TestLoadStateRejectsMalformedFiles(t *testing.T) {
 		name    string
 		content string
 	}{
-		{"unsupported version", "version: 2\n"},
-		{"unknown field", "version: 1\nunexpected: true\n"},
+		{"future version", "version: 3\n"},
+		{"unknown field", "version: 2\nunexpected: true\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if err := writeStateFile(t, dir, tc.content); err != nil {

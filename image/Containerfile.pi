@@ -1,25 +1,25 @@
 # pi sandbox: base + Node + the pi coding agent.
 #
 # pi is an npm package (engines.node >= 22.19.0), not a static binary, so this
-# image needs a Node runtime. Node and pi are installed in a Debian builder
-# stage and only the runtime files are copied into the distroless base; npm,
+# image needs a Node runtime. Node and pi are installed in an Alpine builder
+# stage and only the musl runtime files are copied into the scratch base; npm,
 # the package cache, docs and examples never reach the final image.
 ARG BASE=localhost/agentbox/base:latest
-ARG DEBIAN_IMAGE
+ARG ALPINE_IMAGE
 
-FROM ${DEBIAN_IMAGE} AS build
-
-ENV DEBIAN_FRONTEND=noninteractive
+FROM ${ALPINE_IMAGE} AS build
 
 # Only this stage needs these: the official Node tarball is .tar.xz, and the
-# binary links libatomic.so.1 on Debian. The other agents do not pay for pi's
+# musl binary links libstdc++ and libgcc. The other agents do not pay for pi's
 # build dependencies or runtime.
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apk add --no-cache \
       ca-certificates \
       curl \
-      libatomic1 \
-      xz-utils \
-  && rm -rf /var/lib/apt/lists/*
+      libgcc \
+      libstdc++ \
+      musl-utils \
+      tar \
+      xz
 
 # Pinned. The image's Node must satisfy the pinned pi version's engines field;
 # drifting either one independently is a real failure mode.
@@ -31,22 +31,24 @@ ARG PI_VERSION
 # download (or of nodejs.org) yields an image that silently runs attacker code,
 # and the image is built once and then trusted for a long time. Bumping
 # NODE_VERSION therefore also requires bumping the matching digest: from
-# https://nodejs.org/dist/v<version>/SHASUMS256.txt.
+# https://nodejs.org/dist/v<version>/SHASUMS256.txt for x64, or from
+# https://unofficial-builds.nodejs.org/download/release/v<version>/SHASUMS256.txt
+# for the arm64 musl build that nodejs.org does not publish.
 ARG NODE_SHA256_X64
 ARG NODE_SHA256_ARM64
 
 RUN test -n "${NODE_VERSION}" && test -n "${NODE_SHA256_X64}" && test -n "${NODE_SHA256_ARM64}" \
  && ARCH="$(uname -m)" \
  && case "$ARCH" in \
-      x86_64|amd64) NODE_ARCH=x64;   NODE_SHA256="$NODE_SHA256_X64" ;; \
-      aarch64|arm64) NODE_ARCH=arm64; NODE_SHA256="$NODE_SHA256_ARM64" ;; \
+      x86_64|amd64) NODE_ARCH=x64;   NODE_HOST=https://nodejs.org/dist; NODE_SHA256="$NODE_SHA256_X64" ;; \
+      aarch64|arm64) NODE_ARCH=arm64; NODE_HOST=https://unofficial-builds.nodejs.org/download/release; NODE_SHA256="$NODE_SHA256_ARM64" ;; \
       *) echo "unsupported architecture: $ARCH" >&2; exit 1 ;; \
     esac \
- && curl -fsSLO "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.xz" \
- && echo "${NODE_SHA256}  node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.xz" | sha256sum -c - \
- && tar -xJf "node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.xz" \
+ && curl -fsSLO "${NODE_HOST}/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${NODE_ARCH}-musl.tar.xz" \
+ && echo "${NODE_SHA256}  node-v${NODE_VERSION}-linux-${NODE_ARCH}-musl.tar.xz" | sha256sum -c - \
+ && tar -xJf "node-v${NODE_VERSION}-linux-${NODE_ARCH}-musl.tar.xz" \
       -C /usr/local --strip-components=1 --no-same-owner \
- && rm "node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.xz" \
+ && rm "node-v${NODE_VERSION}-linux-${NODE_ARCH}-musl.tar.xz" \
  && node --version \
  && npm --version
 
@@ -85,7 +87,7 @@ FROM ${BASE}
 COPY --from=build /out/ /
 
 # Fail the build rather than shipping an agent that cannot resolve its runtime.
-RUN node --version && pi --version
+RUN ["/bin/busybox", "sh", "-c", "node --version && pi --version"]
 
 ENTRYPOINT ["/usr/local/bin/agentbox-entrypoint"]
 CMD ["pi"]

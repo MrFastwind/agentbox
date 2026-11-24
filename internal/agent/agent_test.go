@@ -95,6 +95,33 @@ func TestRegistryImagesAreFullyQualified(t *testing.T) {
 	}
 }
 
+func TestRuntimeWiringSurvivesUnsetenvAll(t *testing.T) {
+	reg := agent.New("/home/u")
+	def, err := reg.Get("opencode")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[string]string{
+		"HOME":           "/home/agent",
+		"PATH":           "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+		"LANG":           "C.UTF-8",
+		"SSL_CERT_FILE":  "/etc/ssl/certs/ca-certificates.crt",
+		"GIT_SSL_CAINFO": "/etc/ssl/certs/ca-certificates.crt",
+		"GIT_EXEC_PATH":  "/usr/libexec/git-core",
+	} {
+		if got := def.BaseEnv[name]; got != want {
+			t.Errorf("BaseEnv[%s] = %q, want %q", name, got, want)
+		}
+	}
+	claude, err := reg.Get("claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := claude.BaseEnv["DISABLE_AUTOUPDATER"]; got != "1" {
+		t.Errorf("DISABLE_AUTOUPDATER = %q", got)
+	}
+}
+
 func TestConfigDirEnvVar(t *testing.T) {
 	reg := agent.New("/home/u")
 	for _, tc := range []struct {

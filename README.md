@@ -166,10 +166,15 @@ points a build at a directory instead, for iterating on a Containerfile; like
 `--config`, it is never discovered automatically, because whatever happened to
 sit next to the executable would otherwise decide what gets built.
 
-The base image is deliberately slim: it carries only what the entrypoint and the
-agent installers need. Each agent image adds exactly one runtime — the agent's
-pinned release artifact, checked against a digest recorded in `pins.yaml`. That
-keeps a Node runtime out of the opencode, claude and antigravity images.
+The base image is deliberately slim: a pinned Alpine stage copies only the musl
+runtime, busybox applets, bash, curl, git helpers, ripgrep and CA certificates
+into a `FROM scratch` rootfs. No apk database, compiler or shell package set is
+left behind. Each agent image adds exactly one runtime — the agent's pinned musl
+release artifact, checked against a digest recorded in `pins.yaml`. That keeps a
+Node runtime out of the opencode, claude and antigravity images. Runtime wiring
+that would otherwise be lost to `--unsetenv-all` (`HOME`, `PATH`, `LANG`,
+`SSL_CERT_FILE`, `GIT_SSL_CAINFO`, `GIT_EXEC_PATH`) lives in
+`internal/agent/env.go`, not in the image.
 
 ### Updating agents
 
@@ -187,11 +192,13 @@ agentbox images rollback claude 2.1.325
 releases for opencode, claude and antigravity, and the npm registry for pi.
 "Latest" means the greatest stable three-part version in the release list, not
 a GitHub `latest` marker, which can point at an older release. Prereleases are
-ignored. For opencode and claude, checksums come from the release's `SHA256SUMS`
-/ `SHASUMS256.txt`; for pi, from npm's `sha512-…` integrity; for antigravity,
-from the GitHub release asset's `sha256:` digest. A missing or malformed
-checksum, incompatible Node engine, or malformed release fails the update
-closed.
+ignored. Only musl artifacts are considered: `*-linux-{x64,arm64}-musl.tar.gz`
+for opencode and claude, and `agy_cli_linux_{x64,arm64}_musl.tar.gz` for
+antigravity, verified from the GitHub asset's `sha256:` digest. pi comes from
+npm's `sha512-…` integrity and preserves the pinned Node musl tarballs (x64 from
+nodejs.org, arm64 from unofficial-builds.nodejs.org). A release with no musl
+artifact, a missing or malformed checksum, an incompatible Node engine, or a
+malformed release fails the update closed — it never falls back to a glibc build.
 
 Each update builds an immutable, fully-qualified `localhost/agentbox/<agent>:<version>`
 image and records it in `$XDG_STATE_HOME/agentbox/images.yaml` (or
@@ -201,7 +208,10 @@ also stores the build arguments, so a missing local image can be rebuilt exactly
 without consulting upstream. The audit log and `--print-argv` show the installed
 version, and `doctor` shows the installed image for every agent. Rollback uses
 the saved history and cannot be used for a version that was never installed by
-agentbox.
+agentbox. State files from before the musl/scratch migration (schema v1) are
+refused by runs with a prompt to run `agentbox images update`; `images check` and
+`images update` start from an empty state so the next explicit update repairs
+the machine without reusing glibc image records.
 
 ### Image references
 
@@ -220,8 +230,9 @@ base/shell   localhost/agentbox/base:latest
 
 `localhost/` is the registry podman gives to locally built images. `--image` and
 the config `image:` key accept only fully-qualified names; an unqualified
-override is refused with the reason. The opencode image may be replaced with the
-upstream build at `docker.io/openeuler/opencode:<tag>` (pinned by digest).
+override is refused with the reason. A replacement image must expose the same
+musl paths that `internal/agent/env.go` declares; the old upstream glibc build
+is no longer the default.
 
 ## Layout
 

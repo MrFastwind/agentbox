@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -30,17 +32,13 @@ func updateTestResolver(t *testing.T) {
 		body := ""
 		switch {
 		case strings.Contains(r.URL.Path, "/repos/anomalyco/opencode/releases"):
-			body = `[{"tag_name":"v2.4.1","assets":[{"name":"SHA256SUMS","browser_download_url":"http://gh.test/sums/opencode"}]}]`
+			body = `[{"tag_name":"v2.4.1","assets":[{"name":"opencode-linux-x64-musl.tar.gz","digest":"sha256:` + strings.Repeat("1", 64) + `"},{"name":"opencode-linux-arm64-musl.tar.gz","digest":"sha256:` + strings.Repeat("2", 64) + `"}]}]`
 		case strings.Contains(r.URL.Path, "/repos/anthropics/claude-code/releases"):
-			body = `[{"tag_name":"v2.1.331","assets":[{"name":"SHASUMS256.txt","browser_download_url":"http://gh.test/sums/claude"}]}]`
-		case strings.Contains(r.URL.Path, "/repos/google-antigravity/cli/releases"):
-			body = `[{"tag_name":"1.5.16","assets":[{"name":"agy_cli_linux_x64.tar.gz","digest":"sha256:` + strings.Repeat("5", 64) + `"},{"name":"agy_cli_linux_arm64.tar.gz","digest":"sha256:` + strings.Repeat("6", 64) + `"}]}]`
+			body = `[{"tag_name":"v2.1.331","assets":[{"name":"claude-linux-x64-musl.tar.gz","digest":"sha256:` + strings.Repeat("3", 64) + `"},{"name":"claude-linux-arm64-musl.tar.gz","digest":"sha256:` + strings.Repeat("4", 64) + `"}]}]`
+		case strings.Contains(r.URL.Path, "/repos/google-antigravity/antigravity-cli/releases"):
+			body = `[{"tag_name":"1.5.16","assets":[{"name":"agy_cli_linux_x64_musl.tar.gz","digest":"sha256:` + strings.Repeat("5", 64) + `"},{"name":"agy_cli_linux_arm64_musl.tar.gz","digest":"sha256:` + strings.Repeat("6", 64) + `"}]}]`
 		case strings.Contains(r.URL.EscapedPath(), "pi-coding-agent"):
 			body = `{"dist-tags":{"latest":"1.6.0"},"versions":{"1.6.0":{"dist":{"integrity":"` + integrity + `"},"engines":{"node":">=22.19.0"}}}}`
-		case r.URL.Path == "/sums/opencode":
-			body = strings.Repeat("1", 64) + "  opencode-linux-x64.tar.gz\n" + strings.Repeat("2", 64) + "  opencode-linux-arm64.tar.gz\n"
-		case r.URL.Path == "/sums/claude":
-			body = strings.Repeat("3", 64) + "  claude-linux-x64.tar.gz\n" + strings.Repeat("4", 64) + "  claude-linux-arm64.tar.gz\n"
 		default:
 			return nil, fmt.Errorf("unexpected request %s", r.URL)
 		}
@@ -80,6 +78,27 @@ func seedInstalledState(t *testing.T, versions map[string]string) {
 	}
 	if err := update.SaveState(state); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestImagesUpdateRecoversLegacyState(t *testing.T) {
+	writeContainerFilesHelper(t)
+	dir := t.TempDir()
+	t.Setenv("AGENTBOX_STATE_DIR", dir)
+	updateTestResolver(t)
+	legacy := "version: 1\nagents:\n  opencode:\n    version: 1.19.5\n    image: localhost/agentbox/opencode:1.19.5\n"
+	if err := os.WriteFile(filepath.Join(dir, "images.yaml"), []byte(legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	code, out, errb := capture(t, func() int { return runImages([]string{"check", "--agent", "opencode"}) })
+	if code != 0 || !strings.Contains(out, "installed=1.19.5 (embedded, not installed)") {
+		t.Fatalf("check = (%d, %q, %q)", code, out, errb)
+	}
+
+	code, out, errb = capture(t, func() int { return runImages([]string{"update", "--dry-run", "--agent", "opencode"}) })
+	if code != 0 || !strings.Contains(out, "would install opencode 2.4.1") {
+		t.Fatalf("update = (%d, %q, %q)", code, out, errb)
 	}
 }
 

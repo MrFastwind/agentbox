@@ -113,7 +113,11 @@ the build when a sandbox guarantee is edited away.
    in `image/pins.yaml`; every version/digest is a mandatory build arg, and the
    installer's "latest" is not a pin. Add an `internal/update` adapter so
    `images check`/`images update` can resolve and verify new releases. Keep the
-   base image slim and add only the runtime that agent needs.
+   base image slim and add only the runtime that agent needs. The scratch base
+   uses musl artifacts; a release without a verified musl build is a refusal,
+   never a fallback to glibc. Runtime wiring stripped by `--unsetenv-all`
+   (`SSL_CERT_FILE`, `GIT_EXEC_PATH`, auto-update disable flags) goes in the
+   agent's declared env, not in an image `ENV`.
 3. Add image tests for any pin or supply-chain guarantee.
 4. Update `README.md` (behaviour and the security notes) and this file if the
    architecture changes.

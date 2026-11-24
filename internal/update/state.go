@@ -2,6 +2,7 @@ package update
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,6 +14,11 @@ import (
 )
 
 const stateFile = "images.yaml"
+
+// ErrLegacyState reports a v1 state file recorded before the musl/scratch image
+// migration. Those records describe glibc images that must not be launched with
+// the new runtime wiring, so they are discarded rather than silently reused.
+var ErrLegacyState = errors.New("image state predates musl images")
 
 // State records which exact image this machine last installed for each agent.
 // Runs use that pin instead of silently following a rebuilt :latest tag.
@@ -68,7 +74,10 @@ func LoadState() (*State, error) {
 	if err := dec.Decode(&state); err != nil {
 		return nil, fmt.Errorf("parsing image state: %w", err)
 	}
-	if state.Version != 1 {
+	if state.Version == 1 {
+		return nil, fmt.Errorf("%w: run agentbox images update", ErrLegacyState)
+	}
+	if state.Version != 2 {
 		return nil, fmt.Errorf("unsupported image state version %d", state.Version)
 	}
 	if state.Agents == nil {
@@ -81,7 +90,13 @@ func LoadState() (*State, error) {
 }
 
 func newState() *State {
-	return &State{Version: 1, Agents: map[string]Record{}, History: map[string][]Record{}}
+	return &State{Version: 2, Agents: map[string]Record{}, History: map[string][]Record{}}
+}
+
+// NewState returns an empty state at the current schema version. Callers that
+// recover from ErrLegacyState use it instead of keeping unusable glibc records.
+func NewState() *State {
+	return newState()
 }
 
 // SaveState writes image state atomically with private permissions.
@@ -89,7 +104,7 @@ func SaveState(state *State) error {
 	if state == nil {
 		return fmt.Errorf("image state is nil")
 	}
-	state.Version = 1
+	state.Version = 2
 	path, err := StatePath()
 	if err != nil {
 		return err

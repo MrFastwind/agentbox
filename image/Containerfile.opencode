@@ -22,7 +22,7 @@ RUN set -eu; \
     esac; \
     test -n "${SUM}"; \
     curl -fsSL --retry 3 \
-      "https://github.com/anomalyco/opencode/releases/download/v${OPENCODE_VERSION}/opencode-linux-${ARCH}.tar.gz" \
+      "https://github.com/anomalyco/opencode/releases/download/v${OPENCODE_VERSION}/opencode-linux-${ARCH}-musl.tar.gz" \
       -o /tmp/opencode.tar.gz; \
     printf '%s  %s\n' "${SUM}" /tmp/opencode.tar.gz | sha256sum -c -; \
     tar -xzf /tmp/opencode.tar.gz -C /usr/local/bin opencode; \

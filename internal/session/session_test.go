@@ -2,6 +2,7 @@ package session
 
 import (
 	"encoding/hex"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"agentbox/internal/agent"
 	"agentbox/internal/audit"
 	"agentbox/internal/fsx"
+	"agentbox/internal/podman"
 	"agentbox/internal/policy"
 )
 
@@ -207,6 +209,57 @@ func TestBootStagesStateAndSeedsAndRuns(t *testing.T) {
 	}
 }
 
+func TestBootStagesUserAuthFilesSeparatelyFromSeeds(t *testing.T) {
+	var gotSpec *policy.ResolvedSpec
+	var authFile []byte
+	var authMode os.FileMode
+
+	withRun(t, func(spec *policy.ResolvedSpec, _ []string, _ *os.File, _ *os.File, _ *os.File) (int, error) {
+		gotSpec = spec
+		for _, m := range spec.Mounts {
+			if m.Origin == "auth" {
+				info, err := os.Stat(filepath.Join(m.Host, ".config", "ci", "token.json"))
+				if err != nil {
+					return 1, err
+				}
+				authMode = info.Mode().Perm()
+				authFile, _ = os.ReadFile(filepath.Join(m.Host, ".config", "ci", "token.json"))
+			}
+		}
+		return 0, nil
+	})
+
+	f := fakeHost()
+	f.Mkdir(testHome + "/.config/ci")
+	f.Write(testHome+"/.config/ci/token.json", []byte("secret-token"))
+	def := baseDef()
+	def.AuthFiles = []agent.AuthSpec{{Rel: ".config/ci/token.json", ContainerRel: ".config/ci/token.json"}}
+
+	var log strings.Builder
+	o := options(f, nil)
+	o.Audit = audit.New(&log)
+	code, err := o.Boot(def, policy.Request{LaunchDir: testProject, UserAuth: true})
+	if err != nil || code != 0 {
+		t.Fatalf("Boot = (%d, %v), want (0, nil)", code, err)
+	}
+
+	if !hasMount(gotSpec, "auth", podman.UserAuthMountDest) {
+		t.Fatalf("auth staging not mounted: %+v", gotSpec.Mounts)
+	}
+	if !hasMount(gotSpec, "seed", "/run/agentbox/seeds") {
+		t.Fatalf("seed staging must remain separate from auth: %+v", gotSpec.Mounts)
+	}
+	if string(authFile) != "secret-token" {
+		t.Fatalf("auth file staged with wrong bytes: %q", authFile)
+	}
+	if authMode != 0o600 {
+		t.Fatalf("auth file mode = %v, want 0600", authMode)
+	}
+	if strings.Contains(log.String(), "secret-token") {
+		t.Fatalf("credential staged for the agent leaked into the audit log:\n%s", log.String())
+	}
+}
+
 func TestBootGeneratesNameWhenEmpty(t *testing.T) {
 	var name string
 	withRun(t, func(_ *policy.ResolvedSpec, args []string, _ *os.File, _ *os.File, _ *os.File) (int, error) {
@@ -297,6 +350,48 @@ func TestBootResolverFailureReturnsError(t *testing.T) {
 	}
 	if code != 1 {
 		t.Fatalf("refusal should report code 1, got %d", code)
+	}
+}
+
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("write refused") }
+
+func TestBootAuditFailureStopsBeforeRun(t *testing.T) {
+	withRun(t, func(*policy.ResolvedSpec, []string, *os.File, *os.File, *os.File) (int, error) {
+		t.Fatal("podman must not run when the audit record cannot be written")
+		return 1, nil
+	})
+
+	o := options(fakeHost(), nil)
+	o.Audit = audit.New(failingWriter{})
+	code, err := o.Boot(baseDef(), policy.Request{LaunchDir: testProject})
+	if err == nil {
+		t.Fatal("expected the audit write failure to stop Boot")
+	}
+	if code != 1 {
+		t.Fatalf("audit failure should report code 1, got %d", code)
+	}
+}
+
+func TestBootEphemeralHomeFailureReturnsError(t *testing.T) {
+	withRun(t, func(*policy.ResolvedSpec, []string, *os.File, *os.File, *os.File) (int, error) {
+		t.Fatal("podman must not run when ephemeral state cannot be created")
+		return 1, nil
+	})
+
+	missing := filepath.Join(t.TempDir(), "missing")
+	t.Setenv("TMPDIR", missing)
+	saved := ephemeralBases
+	ephemeralBases = []string{missing}
+	t.Cleanup(func() { ephemeralBases = saved })
+
+	code, err := options(fakeHost(), nil).Boot(baseDef(), policy.Request{LaunchDir: testProject})
+	if err == nil {
+		t.Fatal("expected ephemeral HOME creation to fail")
+	}
+	if code != 1 {
+		t.Fatalf("ephemeral HOME failure should report code 1, got %d", code)
 	}
 }
 
@@ -421,6 +516,53 @@ func TestWriteSeedsErrorIsReported(t *testing.T) {
 	if err := writeSeeds(dir, []policy.SeededFile{{Rel: "blocker/child.json", Data: []byte("y")}}); err == nil {
 		t.Fatal("expected an error when a seed's parent path is a file")
 	}
+}
+
+func TestWriteAuthFilesMirrorsRelativePaths(t *testing.T) {
+	dir := t.TempDir()
+	auth := []policy.AuthFile{
+		{Rel: ".config/ci/auth.json", Data: []byte("a")},
+		{Rel: ".credentials", Data: []byte("b")},
+	}
+	if err := writeAuthFiles(dir, auth); err != nil {
+		t.Fatalf("writeAuthFiles: %v", err)
+	}
+	for _, a := range auth {
+		p := filepath.Join(dir, filepath.FromSlash(a.Rel))
+		got, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatalf("auth file %q not written: %v", a.Rel, err)
+		}
+		if string(got) != string(a.Data) {
+			t.Fatalf("auth file %q = %q, want %q", a.Rel, got, a.Data)
+		}
+		info, _ := os.Stat(p)
+		if info.Mode().Perm() != 0o600 {
+			t.Fatalf("auth file %q mode = %v, want 0600", a.Rel, info.Mode().Perm())
+		}
+	}
+}
+
+func TestWriteAuthFilesErrorsAreReported(t *testing.T) {
+	t.Run("parent path is a file", func(t *testing.T) {
+		dir := t.TempDir()
+		file := filepath.Join(dir, "blocker")
+		if err := os.WriteFile(file, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := writeAuthFiles(dir, []policy.AuthFile{{Rel: "blocker/child.json", Data: []byte("y")}}); err == nil {
+			t.Fatal("expected an error when an auth file's parent path is a file")
+		}
+	})
+	t.Run("destination is a directory", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.Mkdir(filepath.Join(dir, "token.json"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := writeAuthFiles(dir, []policy.AuthFile{{Rel: "token.json", Data: []byte("y")}}); err == nil {
+			t.Fatal("expected an error when an auth file's destination is a directory")
+		}
+	})
 }
 
 func TestShellQuote(t *testing.T) {

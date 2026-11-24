@@ -43,6 +43,15 @@ type AgentPin struct {
 var digestPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 var sha512Pattern = regexp.MustCompile(`^[0-9a-f]{128}$`)
 
+const alpineImageArg = "ALPINE_IMAGE"
+
+var requiredAgentArgs = map[string][]string{
+	"opencode":    {"OPENCODE_VERSION", "OPENCODE_SHA256_X64", "OPENCODE_SHA256_ARM64"},
+	"pi":          {alpineImageArg, "NODE_VERSION", "NODE_SHA256_X64", "NODE_SHA256_ARM64", "PI_VERSION", "PI_SHA512_HEX"},
+	"claude":      {"CLAUDE_VERSION", "CLAUDE_SHA256_X64", "CLAUDE_SHA256_ARM64"},
+	"antigravity": {"AGY_VERSION", "AGY_SHA256_X64", "AGY_SHA256_ARM64"},
+}
+
 // ParsePins reads a pins file, rejecting unknown fields and incomplete pins.
 func ParsePins(data []byte) (PinSet, error) {
 	var pins PinSet
@@ -68,18 +77,30 @@ func LoadPins(fsys fs.FS, name string) (PinSet, error) {
 
 // Validate rejects incomplete or malformed pins before they reach a build.
 func (p PinSet) Validate() error {
-	if p.Version != 1 {
+	if p.Version != 2 {
 		return fmt.Errorf("unsupported pins version %d", p.Version)
 	}
 	if err := validateArgs(p.Base.Args); err != nil {
 		return fmt.Errorf("base pins: %w", err)
 	}
+	if p.Base.Args[alpineImageArg] == "" {
+		return fmt.Errorf("base pins: missing %s", alpineImageArg)
+	}
 	for name, pin := range p.Agents {
+		required, ok := requiredAgentArgs[name]
+		if !ok {
+			return fmt.Errorf("unknown agent %q", name)
+		}
 		if err := policy.ValidateAgentVersion(pin.Version); err != nil {
 			return fmt.Errorf("agent %s: %w", name, err)
 		}
 		if err := validateArgs(pin.Args); err != nil {
 			return fmt.Errorf("agent %s: %w", name, err)
+		}
+		for _, key := range required {
+			if pin.Args[key] == "" {
+				return fmt.Errorf("agent %s: missing %s", name, key)
+			}
 		}
 	}
 	return nil
@@ -107,6 +128,14 @@ func validateArgs(args map[string]string) error {
 		}
 		if k == "PI_SHA512_HEX" && !sha512Pattern.MatchString(v) {
 			return fmt.Errorf("%s is not a sha512 digest", k)
+		}
+		if k == alpineImageArg {
+			if err := policy.ValidateImageRef(v); err != nil {
+				return fmt.Errorf("%s: %w", k, err)
+			}
+			if !strings.Contains(v, "@sha256:") {
+				return fmt.Errorf("%s is not pinned by digest", k)
+			}
 		}
 	}
 	return nil

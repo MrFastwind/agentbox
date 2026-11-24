@@ -81,6 +81,16 @@ The code is normative; this section keeps the plan from lying.
     `images rollback` restores a previously recorded version. Antigravity has
     no vendor checksum file, so its GitHub asset `digest` is trusted directly;
     the Containerfile still verifies the downloaded bytes against that digest.
+ 9. **The base image is Alpine-built `FROM scratch`, and every agent uses musl
+    artifacts.** The original glibc finding was true of the binary available
+    then; current releases of opencode, claude and antigravity publish musl
+    tarballs, and Node publishes an x64 musl tarball (with an arm64 musl build
+    from `unofficial-builds.nodejs.org`). An Alpine builder assembles the ldd
+    closure into a scratch rootfs; `path`/`env` settings that `--unsetenv-all`
+    strips are declared in `internal/agent/env.go`. `images update` rejects
+    glibc-only releases rather than falling back. Image state schema v2 drops
+    v1 glibc records so an old image cannot be launched with the new runtime
+    wiring; the next explicit update rebuilds and records a musl image.
 
 ---
 
@@ -119,7 +129,7 @@ Measured on the target host, not assumed. These constrain the design.
 
 | Finding | Consequence |
 |---|---|
-| `/usr/bin/opencode` is a **glibc-dynamically-linked** ELF | Base image **must** be Debian/Ubuntu. Alpine/musl will not run it |
+| The opencode binary then available was **glibc-dynamically-linked**; current releases publish `*-musl.tar.gz` | Original finding required Debian; the implementation now uses pinned musl artifacts on an Alpine-built scratch rootfs (§0.9) |
 | `~/.config/opencode/` holds static config only (`opencode.json`, `agents/`, `command/`, `docs/`) | Safe to auto-mount `:ro` |
 | `~/.local/share/opencode/` holds **mutable state and secrets** (`opencode.db`, `snapshot/`, `storage/`, `auth.json`, `account.json` at `0600`) | Must **never** be mounted. Redirect the path instead |
 | Honors `XDG_DATA_HOME`, `XDG_CONFIG_HOME`, `XDG_STATE_HOME`, `XDG_CACHE_HOME`, `OPENCODE_CONFIG_DIR` | Writable state redirects cleanly to container-local storage |
@@ -321,9 +331,9 @@ agentbox/
 │   ├── session/            # ephemeral container lifecycle
 │   └── config/             # agentbox.yaml loading
 ├── image/
-│   ├── Containerfile.base     # debian-slim + git, rg, fd, build tools
-│   ├── Containerfile.opencode # base + opencode binary
-│   └── Containerfile.pi       # base + node>=22.19.0 + pi-coding-agent
+│   ├── Containerfile.base     # Alpine-built scratch rootfs + entrypoint
+│   ├── Containerfile.opencode # base + pinned opencode musl artifact
+│   └── Containerfile.pi       # base + pinned Node musl + pi-coding-agent
 ├── agentbox.yaml    # example project config
 └── PLAN.md
 ```
@@ -343,16 +353,18 @@ environment-dependent reference is a supply-chain ambiguity, not a convenience.
 
 | Program | Default container image (FQIN) | Built from | Upstream equivalent (FQIN) |
 |---|---|---|---|
-| `opencode` | `localhost/agentbox/opencode:latest` | `image/Containerfile.opencode` (glibc base) | `docker.io/openeuler/opencode:<pinned-tag>` |
-| `pi` | `localhost/agentbox/pi:latest` | `image/Containerfile.pi` (`FROM docker.io/library/node:22-slim`) | none |
+| `opencode` | `localhost/agentbox/opencode:latest` | `image/Containerfile.opencode` (musl artifact on scratch base) | none |
+| `pi` | `localhost/agentbox/pi:latest` | `image/Containerfile.pi` (pinned Node musl tarball) | none |
 
 Rules:
 
 - Locally built images are addressed as `localhost/...` (podman's build default) and run with
   `--pull=never`, so a same-named Hub image can never be silently substituted.
-- Upstream references (`docker.io/openeuler/opencode`) are pinned by **digest**, not `latest`.
-- `FROM` lines in the Containerfiles are FQINs too (`docker.io/library/node:22-slim`,
-  `docker.io/library/debian:stable-slim`).
+- A user-global override is still an FQIN and must expose the container-side paths declared
+  in `internal/agent/env.go`; there is no upstream image mapping to swap in by name.
+- `FROM` lines in the Containerfiles are FQINs too. The Alpine builder is
+  `public.ecr.aws/docker/library/alpine:3.22@sha256:…` from `image/pins.yaml`;
+  the shipped stage is `FROM scratch`.
 - `doctor` prints the resolved FQIN per program and **warns** when
   `unqualified-search-registries` is unset or any reference is a short name.
 - The built-in table is the authority. A **user-global** config may reference one of these
@@ -365,7 +377,7 @@ The registry entry that implements this mapping:
 type Agent struct {
     Name          string
     Image         string          // FQIN for this program, §6a.1 (localhost/agentbox/<name>)
-    UpstreamImage string          // documented upstream equivalent, "" if none (opencode: docker.io/openeuler/opencode)
+    ImageVersion  string          // recorded immutable tag for --print-argv and doctor
     ConfigMount   ConfigStrategy  // DirMount | FileSeed | None
     ConfigDir     string          // host dir to read config from
     ConfigEnv     string          // container-side config dir env var
@@ -391,12 +403,12 @@ opencode is a self-contained native binary; pi is an npm package needing Node. B
 both means every user carries Node even when running opencode. Separate images keep each
 minimal; a shared `Containerfile.base` avoids duplicating the toolchain layer.
 
-Both are our own images, mapped in §6a.1. The mapping also records upstream equivalents so the
-pair is discoverable and swappable: `docker.io/openeuler/opencode` is the openEuler-built
-official image for the opencode program and may be referenced by a **user-global** config in
-place of `localhost/agentbox/opencode`; pi has no upstream image, so
-`localhost/agentbox/pi` is its only mapping. The defaults are the locally built FQINs,
-so an unqualified name never reaches podman's runtime argv.
+Both are our own images, mapped in §6a.1. The mapping no longer records upstream image
+equivalents: the opencode, claude and antigravity images are assembled locally from pinned
+musl release artifacts, and pi carries a pinned Node musl tarball. A user-global config may
+still override an image only with an FQIN that exposes the declared runtime paths, not with a
+short name or a glibc image. The defaults are the locally built FQINs, so an unqualified name
+never reaches podman's runtime argv.
 
 **Design notes**
 
@@ -514,8 +526,9 @@ file under the launch directory, including tracked source. Two consequences foll
    `~/.config/opencode/` → `:ro` with symlink targets resolved, `XDG_DATA_HOME` → tmpfs.
    *Exit criterion:* `agentbox ls -la` works, a denied mount is rejected, and
    `~/.local/share/opencode/auth.json` is provably absent inside the container.
-4. **Images** — `Containerfile.base` (glibc, git/rg/fd/build tools) plus
-   `Containerfile.opencode` and `Containerfile.pi` (node ≥ 22.19.0 + pi-coding-agent);
+4. **Images** — `Containerfile.base` (Alpine-built scratch rootfs with the musl
+   closure of bash/curl/git/rg plus the entrypoint) and per-agent Containerfiles
+   for pinned musl artifacts, including Node musl ≥ 22.19.0 + pi-coding-agent;
    `agentbox images build` with local caching. All `FROM` and runtime references are
    FQINs (§6a.1); built images are tagged `localhost/agentbox/{opencode,pi}`.
 5. **Registry + agent runners** — the `Agent` table (§6a) with all three strategies; seed

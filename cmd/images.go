@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io/fs"
@@ -84,12 +85,20 @@ func buildTargetsWithPins(targets []string, pins update.PinSet, versions map[str
 		tag := agent.DefaultImage(t)
 
 		var extra []string
-		if t != "base" {
-			extra = append(extra, "--build-arg", "BASE="+agent.DefaultImage("base"))
-		}
 		args := pins.ArgsFor(t)
 		if args == nil {
 			return fmt.Errorf("no pins for %q", t)
+		}
+		if t != "base" {
+			extra = append(extra, "--build-arg", "BASE="+agent.DefaultImage("base"))
+			merged := make(map[string]string, len(pins.Base.Args)+len(args))
+			for k, v := range pins.Base.Args {
+				merged[k] = v
+			}
+			for k, v := range args {
+				merged[k] = v
+			}
+			args = merged
 		}
 		keys := make([]string, 0, len(args))
 		for k := range args {
@@ -135,7 +144,7 @@ func runImagesCheck(args []string) int {
 		fmt.Fprintf(os.Stderr, "agentbox: %v\n", err)
 		return 1
 	}
-	state, err := update.LoadState()
+	state, err := loadImageState()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "agentbox: %v\n", err)
 		return 1
@@ -182,7 +191,7 @@ func runImagesUpdate(args []string) int {
 		fmt.Fprintf(os.Stderr, "agentbox: %v\n", err)
 		return 1
 	}
-	state, err := update.LoadState()
+	state, err := loadImageState()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "agentbox: %v\n", err)
 		return 1
@@ -268,7 +277,7 @@ func runImagesRollback(args []string) int {
 		fmt.Fprintf(os.Stderr, "agentbox: unknown agent %q\n", target)
 		return 2
 	}
-	state, err := update.LoadState()
+	state, err := loadImageState()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "agentbox: %v\n", err)
 		return 1
@@ -326,6 +335,14 @@ func selectedTargets(pins update.PinSet, requested string) ([]string, error) {
 
 func loadPins() (update.PinSet, error) {
 	return update.LoadPins(image.FS, "pins.yaml")
+}
+
+func loadImageState() (*update.State, error) {
+	state, err := update.LoadState()
+	if errors.Is(err, update.ErrLegacyState) {
+		return update.NewState(), nil
+	}
+	return state, err
 }
 
 // imageSource returns a directory holding every build input, plus the function

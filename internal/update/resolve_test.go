@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -43,7 +42,7 @@ func releaseJSON(tag string, assets ...githubAsset) []githubRelease {
 
 func currentAgentArgs() map[string]string {
 	return map[string]string{
-		"DEBIAN_IMAGE":      "docker.io/library/debian:stable-slim@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		"ALPINE_IMAGE":      "public.ecr.aws/docker/library/alpine:3.22@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		"NODE_VERSION":      "26.13.1",
 		"NODE_SHA256_X64":   "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 		"NODE_SHA256_ARM64": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
@@ -51,24 +50,19 @@ func currentAgentArgs() map[string]string {
 }
 
 func TestResolveOpencodeUsesNewestStableRelease(t *testing.T) {
-	sums := "1111111111111111111111111111111111111111111111111111111111111111  opencode-linux-x64.tar.gz\n" +
-		"2222222222222222222222222222222222222222222222222222222222222222  opencode-linux-arm64.tar.gz\n"
-	var resolver *Resolver
-	resolver = testResolver(t, func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case strings.Contains(r.URL.Path, "/repos/anomalyco/opencode/releases"):
-			serveJSON(t, w, []githubRelease{
-				{TagName: "v9.9.9-beta.1", Prerelease: true},
-				{TagName: "v1.19.6", HTMLURL: "https://example.test/old"},
-				{TagName: "v2.4.1", HTMLURL: "https://example.test/new", Assets: []githubAsset{
-					{Name: "SHA256SUMS", BrowserDownloadURL: resolver.GitHubAPI + "/sums"},
-				}},
-			})
-		case r.URL.Path == "/sums":
-			fmt.Fprint(w, sums)
-		default:
+	resolver := testResolver(t, func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Path, "/repos/anomalyco/opencode/releases") {
 			http.NotFound(w, r)
+			return
 		}
+		serveJSON(t, w, []githubRelease{
+			{TagName: "v9.9.9-beta.1", Prerelease: true},
+			{TagName: "v1.19.6", HTMLURL: "https://example.test/old"},
+			{TagName: "v2.4.1", HTMLURL: "https://example.test/new", Assets: []githubAsset{
+				{Name: "opencode-linux-x64-musl.tar.gz", Digest: "sha256:" + strings.Repeat("1", 64)},
+				{Name: "opencode-linux-arm64-musl.tar.gz", Digest: "sha256:" + strings.Repeat("2", 64)},
+			}},
+		})
 	})
 	pin, err := resolver.Resolve(context.Background(), "opencode", AgentPin{Args: currentAgentArgs()})
 	if err != nil {
@@ -85,19 +79,16 @@ func TestResolveOpencodeUsesNewestStableRelease(t *testing.T) {
 	}
 }
 
-func TestResolveClaudeUsesReleaseChecksums(t *testing.T) {
-	sums := "3333333333333333333333333333333333333333333333333333333333333333  claude-linux-x64.tar.gz\n" +
-		"4444444444444444444444444444444444444444444444444444444444444444  claude-linux-arm64.tar.gz\n"
-	var resolver *Resolver
-	resolver = testResolver(t, func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case strings.Contains(r.URL.Path, "/repos/anthropics/claude-code/releases"):
-			serveJSON(t, w, releaseJSON("v2.1.331", githubAsset{Name: "SHASUMS256.txt", BrowserDownloadURL: resolver.GitHubAPI + "/sums"}))
-		case r.URL.Path == "/sums":
-			fmt.Fprint(w, sums)
-		default:
+func TestResolveClaudeUsesMuslTarballDigests(t *testing.T) {
+	resolver := testResolver(t, func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Path, "/repos/anthropics/claude-code/releases") {
 			http.NotFound(w, r)
+			return
 		}
+		serveJSON(t, w, releaseJSON("v2.1.331",
+			githubAsset{Name: "claude-linux-x64-musl.tar.gz", Digest: "sha256:" + strings.Repeat("3", 64)},
+			githubAsset{Name: "claude-linux-arm64-musl.tar.gz", Digest: "sha256:" + strings.Repeat("4", 64)},
+		))
 	})
 	pin, err := resolver.Resolve(context.Background(), "claude", AgentPin{Args: currentAgentArgs()})
 	if err != nil {
@@ -108,15 +99,15 @@ func TestResolveClaudeUsesReleaseChecksums(t *testing.T) {
 	}
 }
 
-func TestResolveAntigravityUsesAssetDigest(t *testing.T) {
+func TestResolveAntigravityUsesMuslAssetDigest(t *testing.T) {
 	resolver := testResolver(t, func(w http.ResponseWriter, r *http.Request) {
-		if !strings.Contains(r.URL.Path, "/repos/google-antigravity/cli/releases") {
+		if !strings.Contains(r.URL.Path, "/repos/google-antigravity/antigravity-cli/releases") {
 			http.NotFound(w, r)
 			return
 		}
 		serveJSON(t, w, releaseJSON("1.5.16",
-			githubAsset{Name: "agy_cli_linux_x64.tar.gz", Digest: "sha256:" + strings.Repeat("5", 64)},
-			githubAsset{Name: "agy_cli_linux_arm64.tar.gz", Digest: "sha256:" + strings.Repeat("6", 64)},
+			githubAsset{Name: "agy_cli_linux_x64_musl.tar.gz", Digest: "sha256:" + strings.Repeat("5", 64)},
+			githubAsset{Name: "agy_cli_linux_arm64_musl.tar.gz", Digest: "sha256:" + strings.Repeat("6", 64)},
 		))
 	})
 	pin, err := resolver.Resolve(context.Background(), "antigravity", AgentPin{Args: currentAgentArgs()})
@@ -154,8 +145,8 @@ func TestResolvePiUsesRegistryIntegrity(t *testing.T) {
 	if pin.Version != "1.6.0" || pin.Args["PI_SHA512_HEX"] != strings.Repeat("61", 64) {
 		t.Fatalf("pin = %+v", pin)
 	}
-	if pin.Args["NODE_VERSION"] != "26.13.1" {
-		t.Fatal("pi resolution dropped the current Node pin")
+	if pin.Args["NODE_VERSION"] != "26.13.1" || pin.Args["ALPINE_IMAGE"] == "" {
+		t.Fatal("pi resolution dropped a current runtime pin")
 	}
 }
 
@@ -187,21 +178,33 @@ func TestResolveRejectsMalformedUpstream(t *testing.T) {
 			},
 		},
 		{
-			name:   "missing checksum asset",
-			target: "claude",
+			name:   "glibc-only opencode release",
+			target: "opencode",
 			handler: func(w http.ResponseWriter, r *http.Request) {
-				serveJSON(t, w, releaseJSON("v2.1.331"))
+				serveJSON(t, w, releaseJSON("v2.4.1", githubAsset{
+					Name:   "opencode-linux-x64.tar.gz",
+					Digest: "sha256:" + strings.Repeat("1", 64),
+				}))
 			},
 		},
 		{
-			name:   "checksum status",
+			name:   "glibc-only claude release",
+			target: "claude",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				serveJSON(t, w, releaseJSON("v2.1.331", githubAsset{
+					Name:   "claude-linux-x64.tar.gz",
+					Digest: "sha256:" + strings.Repeat("3", 64),
+				}))
+			},
+		},
+		{
+			name:   "missing arm64 musl digest",
 			target: "opencode",
 			handler: func(w http.ResponseWriter, r *http.Request) {
-				if strings.Contains(r.URL.Path, "/repos/") {
-					serveJSON(t, w, releaseJSON("v2.4.1", githubAsset{Name: "SHA256SUMS", BrowserDownloadURL: "http://127.0.0.1:1/sums"}))
-					return
-				}
-				http.Error(w, "boom", http.StatusBadGateway)
+				serveJSON(t, w, releaseJSON("v2.4.1", githubAsset{
+					Name:   "opencode-linux-x64-musl.tar.gz",
+					Digest: "sha256:" + strings.Repeat("1", 64),
+				}))
 			},
 		},
 		{
@@ -293,6 +296,10 @@ func TestResolveRejectsMissingClientAndArgs(t *testing.T) {
 	delete(args, "NODE_SHA256_ARM64")
 	if _, err := resolver.Resolve(context.Background(), "pi", AgentPin{Args: args}); err == nil {
 		t.Fatal("Resolve accepted a partial node pin")
+	}
+	delete(args, alpineImageArg)
+	if _, err := resolver.Resolve(context.Background(), "pi", AgentPin{Args: args}); err == nil {
+		t.Fatal("Resolve accepted a missing Alpine pin")
 	}
 }
 

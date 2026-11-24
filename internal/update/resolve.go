@@ -84,9 +84,9 @@ func (r *Resolver) Resolve(ctx context.Context, target string, current AgentPin)
 	var err error
 	switch target {
 	case "opencode":
-		pin, err = r.resolveGitHubArtifact(ctx, "anomalyco/opencode", "SHA256SUMS", "OPENCODE", current.Args)
+		pin, err = r.resolveGitHubMuslArtifact(ctx, "anomalyco/opencode", "opencode", current.Args)
 	case "claude":
-		pin, err = r.resolveGitHubArtifact(ctx, "anthropics/claude-code", "SHASUMS256.txt", "CLAUDE", current.Args)
+		pin, err = r.resolveGitHubMuslArtifact(ctx, "anthropics/claude-code", "claude", current.Args)
 	case "antigravity":
 		pin, err = r.resolveAntigravity(ctx, current.Args)
 	case "pi":
@@ -101,36 +101,25 @@ func (r *Resolver) Resolve(ctx context.Context, target string, current AgentPin)
 	return pin, nil
 }
 
-func (r *Resolver) resolveGitHubArtifact(ctx context.Context, repo, sumsAsset, prefix string, current map[string]string) (AgentPin, error) {
+func (r *Resolver) resolveGitHubMuslArtifact(ctx context.Context, repo, prefix string, current map[string]string) (AgentPin, error) {
 	release, err := r.latestGitHubRelease(ctx, repo)
 	if err != nil {
 		return AgentPin{}, err
 	}
-	sumsURL := assetURL(release, sumsAsset)
-	if sumsURL == "" {
-		return AgentPin{}, fmt.Errorf("release %s has no %s", release.TagName, sumsAsset)
-	}
-	text, err := r.getText(ctx, sumsURL)
-	if err != nil {
-		return AgentPin{}, fmt.Errorf("reading %s: %w", sumsAsset, err)
-	}
-	checksums, err := parseChecksums(text)
-	if err != nil {
-		return AgentPin{}, fmt.Errorf("parsing %s: %w", sumsAsset, err)
-	}
 	version := strings.TrimPrefix(release.TagName, "v")
 	args := map[string]string{
-		prefix + "_VERSION":      version,
-		prefix + "_SHA256_X64":   checksums[strings.ToLower(prefix)+"-linux-x64.tar.gz"],
-		prefix + "_SHA256_ARM64": checksums[strings.ToLower(prefix)+"-linux-arm64.tar.gz"],
+		strings.ToUpper(prefix) + "_VERSION":      version,
+		strings.ToUpper(prefix) + "_SHA256_X64":   assetDigest(release, prefix+"-linux-x64-musl.tar.gz"),
+		strings.ToUpper(prefix) + "_SHA256_ARM64": assetDigest(release, prefix+"-linux-arm64-musl.tar.gz"),
 	}
-	for _, key := range []string{prefix + "_SHA256_X64", prefix + "_SHA256_ARM64"} {
-		if args[key] == "" {
-			return AgentPin{}, fmt.Errorf("release %s has no checksum for %s", release.TagName, key)
+	for _, suffix := range []string{"_SHA256_X64", "_SHA256_ARM64"} {
+		key := strings.ToUpper(prefix) + suffix
+		if !digestPattern.MatchString(args[key]) {
+			return AgentPin{}, fmt.Errorf("release %s has no sha256 digest for %s", release.TagName, key)
 		}
 	}
 	for k, v := range current {
-		if strings.HasPrefix(k, "DEBIAN_IMAGE") || strings.HasPrefix(k, "NODE_") {
+		if strings.HasPrefix(k, alpineImageArg) {
 			args[k] = v
 		}
 	}
@@ -138,14 +127,14 @@ func (r *Resolver) resolveGitHubArtifact(ctx context.Context, repo, sumsAsset, p
 }
 
 func (r *Resolver) resolveAntigravity(ctx context.Context, current map[string]string) (AgentPin, error) {
-	release, err := r.latestGitHubRelease(ctx, "google-antigravity/cli")
+	release, err := r.latestGitHubRelease(ctx, "google-antigravity/antigravity-cli")
 	if err != nil {
 		return AgentPin{}, err
 	}
 	args := map[string]string{
 		"AGY_VERSION":      strings.TrimPrefix(release.TagName, "v"),
-		"AGY_SHA256_X64":   assetDigest(release, "agy_cli_linux_x64.tar.gz"),
-		"AGY_SHA256_ARM64": assetDigest(release, "agy_cli_linux_arm64.tar.gz"),
+		"AGY_SHA256_X64":   assetDigest(release, "agy_cli_linux_x64_musl.tar.gz"),
+		"AGY_SHA256_ARM64": assetDigest(release, "agy_cli_linux_arm64_musl.tar.gz"),
 	}
 	for _, key := range []string{"AGY_SHA256_X64", "AGY_SHA256_ARM64"} {
 		if !digestPattern.MatchString(args[key]) {
@@ -153,7 +142,7 @@ func (r *Resolver) resolveAntigravity(ctx context.Context, current map[string]st
 		}
 	}
 	for k, v := range current {
-		if strings.HasPrefix(k, "DEBIAN_IMAGE") {
+		if strings.HasPrefix(k, alpineImageArg) {
 			args[k] = v
 		}
 	}
@@ -188,7 +177,7 @@ func (r *Resolver) resolvePi(ctx context.Context, current map[string]string) (Ag
 		}
 	}
 	args := map[string]string{"PI_VERSION": version, "PI_SHA512_HEX": digest}
-	for _, k := range []string{"DEBIAN_IMAGE", "NODE_VERSION", "NODE_SHA256_X64", "NODE_SHA256_ARM64"} {
+	for _, k := range []string{alpineImageArg, "NODE_VERSION", "NODE_SHA256_X64", "NODE_SHA256_ARM64"} {
 		if current[k] == "" {
 			return AgentPin{}, fmt.Errorf("current %s is missing", k)
 		}

@@ -411,16 +411,15 @@ func TestDenyListFallbackWhenHomeUnresolvable(t *testing.T) {
 		}
 	})
 
-		t.Run("home path does not resolve", func(t *testing.T) {
-			d := NewResolver(fsx.NewFake("/no/such/home", "/no/such/home"), noEnv).denyList()
-			if d.Home != "/no/such/home" {
-				t.Fatalf("home = %q, want the unresolved home", d.Home)
-			}
-			if err := d.ValidateMount("/no/such/home/.ssh/id_ed25519"); err == nil {
-				t.Fatal("the fallback deny-list must still refuse ~/.ssh")
-			}
-		})
-	}
+	t.Run("home path does not resolve", func(t *testing.T) {
+		d := NewResolver(fsx.NewFake("/no/such/home", "/no/such/home"), noEnv).denyList()
+		if d.Home != "/no/such/home" {
+			t.Fatalf("home = %q, want the unresolved home", d.Home)
+		}
+		if err := d.ValidateMount("/no/such/home/.ssh/id_ed25519"); err == nil {
+			t.Fatal("the fallback deny-list must still refuse ~/.ssh")
+		}
+	})
 }
 
 type authFaultFS struct {
@@ -567,7 +566,35 @@ func TestCollectAuthContinuesAfterMissingFile(t *testing.T) {
 	if len(refusals) != 1 || refusals[0].Fatal {
 		t.Fatalf("refusals = %+v", refusals)
 	}
-	if got := collectAuth(f, home, agent.Definition{}); len(got[0]) != 0 || len(got[1]) != 0 {
+	auth, refusals = collectAuth(f, home, agent.Definition{})
+	if len(auth) != 0 || len(refusals) != 0 {
 		t.Fatal("an empty allow-list read or refused something")
+	}
+}
+
+func TestResolveEnvPassthroughOverridesWiringDefault(t *testing.T) {
+	def := agent.Definition{
+		BaseEnv:        map[string]string{"HOME": "/home/agent", "LANG": "C.UTF-8"},
+		PassthroughEnv: []string{"LANG", "TERM"},
+	}
+	env, refusals := resolveEnv(def, nil, func(name string) (string, bool) {
+		switch name {
+		case "LANG":
+			return "en_US.UTF-8", true
+		case "TERM":
+			return "xterm-256color", true
+		default:
+			return "", false
+		}
+	})
+	if len(refusals) != 0 {
+		t.Fatalf("refusals = %+v", refusals)
+	}
+	got := map[string]string{}
+	for _, pair := range env {
+		got[pair.Name] = pair.Value
+	}
+	if got["LANG"] != "en_US.UTF-8" || got["HOME"] != "/home/agent" || got["TERM"] != "xterm-256color" {
+		t.Fatalf("env = %+v", got)
 	}
 }

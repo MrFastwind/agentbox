@@ -21,17 +21,12 @@ RUN set -eu; \
     esac; \
     test -n "${SUM}"; \
     curl -fsSL --retry 3 \
-      "https://github.com/anthropics/claude-code/releases/download/v${CLAUDE_VERSION}/claude-linux-${ARCH}.tar.gz" \
+      "https://github.com/anthropics/claude-code/releases/download/v${CLAUDE_VERSION}/claude-linux-${ARCH}-musl.tar.gz" \
       -o /tmp/claude.tar.gz; \
     printf '%s  %s\n' "${SUM}" /tmp/claude.tar.gz | sha256sum -c -; \
     tar -xzf /tmp/claude.tar.gz -C /usr/local/bin claude; \
     chmod 0755 /usr/local/bin/claude; \
     rm -f /tmp/claude.tar.gz
-
-# The binary updates itself in the background by default. An immutable image
-# cannot persist an update, and a half-updated launcher is worse than a stale
-# one, so updates are disabled.
-ENV DISABLE_AUTOUPDATER=1
 
 # Fail the build rather than shipping an image whose agent cannot start, or one
 # whose version drifted from the pin.

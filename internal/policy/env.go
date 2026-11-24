@@ -28,13 +28,14 @@ func resolveEnv(def agent.Definition, requested []string, lookup func(string) (s
 		allowed[n] = true
 	}
 
-	seen := map[string]bool{}
+	index := map[string]int{}
 	var out []EnvPair
 	add := func(name, value string) {
-		if seen[name] {
+		if i, ok := index[name]; ok {
+			out[i].Value = value
 			return
 		}
-		seen[name] = true
+		index[name] = len(out)
 		out = append(out, EnvPair{Name: name, Value: value})
 	}
 

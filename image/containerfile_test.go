@@ -78,39 +78,43 @@ func checksumBefore(t *testing.T, src, checksum, action string) {
 // mandatory build args so a binary cannot silently build from stale defaults.
 func TestBaseContainerfileUsesReviewedPins(t *testing.T) {
 	src := readContainerfile(t, "Containerfile.base")
-	requireBuildArgs(t, src, "DEBIAN_IMAGE", "DISTROLESS_IMAGE")
+	requireBuildArgs(t, src, "ALPINE_IMAGE")
 	pins := loadPinsForTest(t)
-	requirePins(t, pins.Base.Args, "DEBIAN_IMAGE", "DISTROLESS_IMAGE")
-	for _, ref := range pins.Base.Args {
-		if !strings.Contains(ref, "@sha256:") {
-			t.Errorf("base image %q is not pinned by digest", ref)
+	requirePins(t, pins.Base.Args, "ALPINE_IMAGE")
+	if ref := pins.Base.Args["ALPINE_IMAGE"]; !strings.Contains(ref, "@sha256:") {
+		t.Errorf("base image %q is not pinned by digest", ref)
+	}
+	if !strings.Contains(src, "FROM ${ALPINE_IMAGE} AS tools") || !strings.Contains(src, "FROM scratch") {
+		t.Fatal("base stages must come from the reviewed Alpine arg and end in scratch")
+	}
+	for _, stale := range []string{"DEBIAN_IMAGE", "DISTROLESS_IMAGE", "apt-get", "build-essential", "pkg-config", "python3", "openssh-client", "xz-utils", "libatomic1"} {
+		if strings.Contains(src, stale) {
+			t.Errorf("Containerfile.base still carries Debian-era %q", stale)
 		}
 	}
-	if !strings.Contains(src, "FROM ${DEBIAN_IMAGE} AS tools") || !strings.Contains(src, "FROM ${DISTROLESS_IMAGE}") {
-		t.Fatal("base stages must come from the reviewed build args")
-	}
-	for _, pkg := range []string{"build-essential", "pkg-config", "python3", "openssh-client", "xz-utils", "libatomic1"} {
-		if strings.Contains(src, pkg) {
-			t.Errorf("Containerfile.base still installs %q", pkg)
-		}
-	}
-	for _, pkg := range []string{"bash", "ca-certificates", "curl", "git", "jq", "less", "ripgrep", "procps"} {
+	for _, pkg := range []string{"bash", "ca-certificates", "curl", "git", "jq", "less", "musl-utils", "ncurses-terminfo-base", "procps-ng", "ripgrep"} {
 		if !strings.Contains(src, "      "+pkg+" \\") {
 			t.Errorf("Containerfile.base must keep %q", pkg)
 		}
+	}
+	if !strings.Contains(src, "cp -a /usr/lib/git-core/. /out/usr/libexec/git-core/") {
+		t.Fatal("git helpers must be copied under the GIT_EXEC_PATH used by policy")
 	}
 }
 
 func TestPiContainerfileVerifiesPinnedTarballs(t *testing.T) {
 	src := readContainerfile(t, "Containerfile.pi")
-	requireBuildArgs(t, src, "DEBIAN_IMAGE", "NODE_VERSION", "NODE_SHA256_X64", "NODE_SHA256_ARM64", "PI_VERSION", "PI_SHA512_HEX")
+	requireBuildArgs(t, src, "ALPINE_IMAGE", "NODE_VERSION", "NODE_SHA256_X64", "NODE_SHA256_ARM64", "PI_VERSION", "PI_SHA512_HEX")
 	args := loadPinsForTest(t).Agents["pi"].Args
-	requirePins(t, args, "NODE_VERSION", "NODE_SHA256_X64", "NODE_SHA256_ARM64", "PI_VERSION", "PI_SHA512_HEX")
-	if !strings.Contains(src, `amd64) NODE_ARCH=x64;   NODE_SHA256="$NODE_SHA256_X64"`) {
-		t.Fatal("the amd64 branch must select NODE_SHA256_X64")
+	requirePins(t, args, "ALPINE_IMAGE", "NODE_VERSION", "NODE_SHA256_X64", "NODE_SHA256_ARM64", "PI_VERSION", "PI_SHA512_HEX")
+	if !strings.Contains(src, `amd64) NODE_ARCH=x64;   NODE_HOST=https://nodejs.org/dist; NODE_SHA256="$NODE_SHA256_X64"`) {
+		t.Fatal("the amd64 branch must select the official x64 musl Node tarball")
 	}
-	if !strings.Contains(src, `arm64) NODE_ARCH=arm64; NODE_SHA256="$NODE_SHA256_ARM64"`) {
-		t.Fatal("the arm64 branch must select NODE_SHA256_ARM64")
+	if !strings.Contains(src, `arm64) NODE_ARCH=arm64; NODE_HOST=https://unofficial-builds.nodejs.org/download/release; NODE_SHA256="$NODE_SHA256_ARM64"`) {
+		t.Fatal("the arm64 branch must select the arm64 musl Node tarball")
+	}
+	if !strings.Contains(src, `${NODE_HOST}/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${NODE_ARCH}-musl.tar.xz`) {
+		t.Fatal("Node must be fetched as a pinned musl tarball")
 	}
 	checksumBefore(t, src, "sha256sum -c -", "tar -xJf")
 	if !strings.Contains(src, `"${PI_SHA512_HEX}  /tmp/pi.tgz" | sha512sum -c -`) {
@@ -120,9 +124,16 @@ func TestPiContainerfileVerifiesPinnedTarballs(t *testing.T) {
 		t.Fatal("the pi tarball must be fetched at the pinned exact version")
 	}
 	checksumBefore(t, src, "sha512sum -c -", "npm install --global --omit=dev /tmp/pi.tgz")
-	for _, pkg := range []string{"xz-utils", "libatomic1"} {
-		if !strings.Contains(src, pkg) {
-			t.Errorf("Containerfile.pi must install %q for the Node runtime", pkg)
+	for _, pkg := range []string{"libgcc", "libstdc++", "musl-utils", "tar", "xz"} {
+		continued := "      " + pkg + " \\\n"
+		final := "      " + pkg + "\n"
+		if !strings.Contains(src, continued) && !strings.Contains(src, final) {
+			t.Errorf("Containerfile.pi must install %q for the Node musl runtime", pkg)
+		}
+	}
+	for _, stale := range []string{"DEBIAN_IMAGE", "apt-get", "libatomic1", "linux-${NODE_ARCH}.tar.xz"} {
+		if strings.Contains(src, stale) {
+			t.Errorf("Containerfile.pi still carries Debian-era %q", stale)
 		}
 	}
 }
@@ -135,8 +146,8 @@ func TestOpencodeContainerfileVerifiesPinnedTarball(t *testing.T) {
 	if strings.Contains(src, "curl -fsSL https://opencode.ai/install | bash") {
 		t.Fatal("the floating vendor installer must not be used")
 	}
-	if !strings.Contains(src, `"https://github.com/anomalyco/opencode/releases/download/v${OPENCODE_VERSION}/opencode-linux-${ARCH}.tar.gz"`) {
-		t.Fatal("the tarball must be fetched from the pinned exact release")
+	if !strings.Contains(src, `"https://github.com/anomalyco/opencode/releases/download/v${OPENCODE_VERSION}/opencode-linux-${ARCH}-musl.tar.gz"`) {
+		t.Fatal("the musl tarball must be fetched from the pinned exact release")
 	}
 	if !strings.Contains(src, `printf '%s  %s\n' "${SUM}" /tmp/opencode.tar.gz | sha256sum -c -`) {
 		t.Fatal("the tarball must be verified with sha256sum -c")
@@ -152,15 +163,15 @@ func TestClaudeContainerfileVerifiesPinnedTarball(t *testing.T) {
 	requireBuildArgs(t, src, "CLAUDE_VERSION", "CLAUDE_SHA256_X64", "CLAUDE_SHA256_ARM64")
 	args := loadPinsForTest(t).Agents["claude"].Args
 	requirePins(t, args, "CLAUDE_VERSION", "CLAUDE_SHA256_X64", "CLAUDE_SHA256_ARM64")
-	if !strings.Contains(src, `"https://github.com/anthropics/claude-code/releases/download/v${CLAUDE_VERSION}/claude-linux-${ARCH}.tar.gz"`) {
-		t.Fatal("the tarball must be fetched from the pinned exact release")
+	if !strings.Contains(src, `"https://github.com/anthropics/claude-code/releases/download/v${CLAUDE_VERSION}/claude-linux-${ARCH}-musl.tar.gz"`) {
+		t.Fatal("the musl tarball must be fetched from the pinned exact release")
 	}
 	if !strings.Contains(src, `printf '%s  %s\n' "${SUM}" /tmp/claude.tar.gz | sha256sum -c -`) {
 		t.Fatal("the tarball must be verified with sha256sum -c")
 	}
 	checksumBefore(t, src, "sha256sum -c -", "tar -xzf")
-	if !strings.Contains(src, "ENV DISABLE_AUTOUPDATER=1") {
-		t.Fatal("the image must disable Claude's background auto-updater")
+	if strings.Contains(src, "ENV DISABLE_AUTOUPDATER=1") {
+		t.Fatal("--unsetenv-all strips image ENV; auto-update wiring belongs in agent policy")
 	}
 	if !strings.Contains(src, `claude --version | grep -F "${CLAUDE_VERSION}"`) {
 		t.Fatal("the image must fail the build when the installed version drifts")
@@ -175,8 +186,8 @@ func TestAntigravityContainerfileVerifiesPinnedTarball(t *testing.T) {
 	if regexp.MustCompile(`(?m)^\s*curl .*install\.sh`).MatchString(src) {
 		t.Fatal("the floating vendor installer must not be used")
 	}
-	if !strings.Contains(src, `"https://github.com/google-antigravity/antigravity-cli/releases/download/${AGY_VERSION}/agy_cli_linux_${AGY_ARCH}.tar.gz"`) {
-		t.Fatal("the tarball must be fetched from the pinned exact release")
+	if !strings.Contains(src, `"https://github.com/google-antigravity/antigravity-cli/releases/download/${AGY_VERSION}/agy_cli_linux_${AGY_ARCH}_musl.tar.gz"`) {
+		t.Fatal("the musl tarball must be fetched from the pinned exact release")
 	}
 	if !strings.Contains(src, `"${AGY_SHA256}  /tmp/agy.tar.gz" | sha256sum -c -`) {
 		t.Fatal("the tarball must be verified with sha256sum -c")

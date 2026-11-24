@@ -26,6 +26,7 @@ func claudeDef(home string) Definition {
 	const configInContainer = homeDir + "/.claude"
 	base := baseEnv()
 	base["CLAUDE_CONFIG_DIR"] = configInContainer
+	base["DISABLE_AUTOUPDATER"] = "1"
 	base[SeedDirEnv] = configInContainer
 	return Definition{
 		Name:                 "claude",
