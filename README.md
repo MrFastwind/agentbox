@@ -172,7 +172,8 @@ ripgrep and CA certificates into a `FROM scratch` rootfs. No apk database,
 compiler or shell package set is left behind. Each agent image adds exactly one
 runtime — the agent's pinned musl release artifact, checked against a digest
 recorded in `pins.yaml`. That keeps a Node runtime out of the opencode, claude
-and antigravity images. Runtime wiring
+and antigravity images; pi's Node closure includes `libatomic` for the x64 musl
+build. Runtime wiring
 that would otherwise be lost to `--unsetenv-all` (`HOME`, `PATH`, `LANG`,
 `SSL_CERT_FILE`, `GIT_SSL_CAINFO`, `GIT_EXEC_PATH`) lives in
 `internal/agent/env.go`, not in the image.

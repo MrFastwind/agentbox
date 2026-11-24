@@ -148,12 +148,15 @@ func TestPiContainerfileVerifiesPinnedTarballs(t *testing.T) {
 		t.Fatal("the pi tarball must be fetched at the pinned exact version")
 	}
 	checksumBefore(t, src, "sha512sum -c -", "npm install --global --omit=dev /tmp/pi.tgz")
-	for _, pkg := range []string{"libgcc", "libstdc++", "musl-utils", "tar", "xz"} {
+	for _, pkg := range []string{"libatomic", "libgcc", "libstdc++", "musl-utils", "tar", "xz"} {
 		continued := "      " + pkg + " \\\n"
 		final := "      " + pkg + "\n"
 		if !strings.Contains(src, continued) && !strings.Contains(src, final) {
 			t.Errorf("Containerfile.pi must install %q for the Node musl runtime", pkg)
 		}
+	}
+	if !strings.Contains(src, `case \"$(uname -m)\" in x86_64|amd64) ldd /usr/local/bin/node | grep -F 'libatomic.so.1 => /usr/lib/' >/dev/null ;; esac`) {
+		t.Fatal("the x64 image must fail the build when Node's atomic runtime is unresolved")
 	}
 	for _, stale := range []string{"DEBIAN_IMAGE", "apt-get", "libatomic1", "linux-${NODE_ARCH}.tar.xz"} {
 		if strings.Contains(src, stale) {

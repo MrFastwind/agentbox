@@ -10,11 +10,12 @@ ARG ALPINE_IMAGE
 FROM ${ALPINE_IMAGE} AS build
 
 # Only this stage needs these: the official Node tarball is .tar.xz, and the
-# musl binary links libstdc++ and libgcc. The other agents do not pay for pi's
-# build dependencies or runtime.
+# x64 musl binary links libatomic, libstdc++ and libgcc. The other agents do not
+# pay for pi's build dependencies or runtime.
 RUN apk add --no-cache \
       ca-certificates \
       curl \
+      libatomic \
       libgcc \
       libstdc++ \
       musl-utils \
@@ -87,7 +88,7 @@ FROM ${BASE}
 COPY --from=build /out/ /
 
 # Fail the build rather than shipping an agent that cannot resolve its runtime.
-RUN ["/bin/busybox", "sh", "-c", "node --version && pi --version"]
+RUN ["/bin/busybox", "sh", "-c", "case \"$(uname -m)\" in x86_64|amd64) ldd /usr/local/bin/node | grep -F 'libatomic.so.1 => /usr/lib/' >/dev/null ;; esac && node --version && pi --version"]
 
 ENTRYPOINT ["/usr/local/bin/agentbox-entrypoint"]
 CMD ["pi"]
