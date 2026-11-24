@@ -97,8 +97,15 @@ func TestBaseContainerfileUsesReviewedPins(t *testing.T) {
 			t.Errorf("Containerfile.base must keep %q", pkg)
 		}
 	}
-	if !strings.Contains(src, "cp -a /usr/lib/git-core/. /out/usr/libexec/git-core/") {
+	if strings.Contains(src, "/usr/lib/git-core") {
+		t.Fatal("Alpine git helpers are in /usr/libexec/git-core, not /usr/lib/git-core")
+	}
+	if !strings.Contains(src, "for f in /usr/libexec/git-core/*; do") ||
+		!strings.Contains(src, "cp -a /usr/libexec/git-core/. /out/usr/libexec/git-core/") {
 		t.Fatal("git helpers must be copied under the GIT_EXEC_PATH used by policy")
+	}
+	if !strings.Contains(src, "test -x /usr/libexec/git-core/git-remote-https") {
+		t.Fatal("the final image must verify a git transport helper is present")
 	}
 }
 
